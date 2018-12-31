@@ -1,0 +1,27 @@
+opam-version: "1.2"
+maintainer: "igarnier@protonmail.com"
+authors: ["Ilias Garnier"]
+homepage: "https://github.com/igarnier/suplex"
+bug-reports: "https://github.com/igarnier/suplex"
+dev-repo: "git+https://github.com/igarnier/suplex"
+license: "MIT"
+build: [
+  ["jbuilder" "build" "-p" name "-j" jobs]
+]
+depends: [
+  "dune"                {build}
+  "core"
+  "llvm"
+  "llvm.analysis"
+  "llvm.scalar_opts"
+  "llvm.executionengine"
+  "ctypes"
+  "llvm_x86"
+  "ppx_bin_prot"
+  "ppx_deriving"
+  "ppx_inline_test"
+]
+available: [ ocaml-version >= "4.04.1" ]
+descr: "
+With suplex, code generates YOU
+"

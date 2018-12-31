@@ -1,0 +1,19 @@
+;; (ignored_subdirs (libexternals))
+;; (dirs :standard \ *externals*)
+
+(rule
+ (deps (source_tree libexternals))
+ (targets libexternals_stubs.a dllexternals_stubs.so)
+ (action (progn
+          (chdir libexternals (run make))
+          (copy libexternals/externals.a libexternals_stubs.a)
+          (copy libexternals/externals.so dllexternals_stubs.so))))
+
+(library
+  (name suplex)
+  (public_name suplex)
+  (ocamlopt_flags (-O3))
+  (libraries llvm llvm.analysis llvm.scalar_opts llvm_X86 llvm.executionengine ppx_deriving core ctypes)
+  (self_build_stubs_archive (externals))
+  (preprocess (pps ppx_deriving.show ppx_deriving.eq ppx_deriving.ord ppx_bin_prot))
+)

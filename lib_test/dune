@@ -1,0 +1,15 @@
+(executables
+ (names test)
+ (link_flags (-cclib /home/ilias/.opam/4.06.1+flambda/lib/stublibs/dllexternals_stubs.so))
+ (libraries suplex)
+)
+
+(alias
+   (name    runtest)
+   (deps    test.exe)
+   (action 
+          (progn
+                 (run %{deps})
+          )
+   )
+)

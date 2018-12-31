@@ -1,0 +1,6 @@
+(rule
+;; (deps )
+ (targets externals.a externals.so)
+ (action (progn
+          (run make)
+          )))

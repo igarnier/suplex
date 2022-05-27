@@ -7,8 +7,6 @@ struct
     lmodule >>= fun llmodule ->
     context >>= fun ctxt ->
     builder >>= fun bld ->
-    let fpm = Llvm.PassManager.create_function llmodule in
-    let _ = Llvm.PassManager.initialize fpm in
     LlvmRepr.type_to_llvm LlvmRepr.T.(TNum Int8) >>= fun main_rettyp ->
     let ft = Llvm.function_type main_rettyp [||] in
     let fv = Llvm.declare_function "main" ft llmodule in
@@ -17,12 +15,14 @@ struct
     let module Body = Term (LlvmRepr) in
     Body.term >>= fun ret_val ->
     let _ = Llvm.build_ret ret_val.llval bld in
-    return (fpm, fv)
+    return fv
 
   let process_main =
     let open LlvmRepr.State in
     lmodule >>= fun llmodule ->
-    main >>= fun (fpm, main_v) ->
+    main >>= fun main_v ->
+    let fpm = Llvm.PassManager.create_function llmodule in
+    let _ = Llvm.PassManager.initialize fpm in
     Llvm.dump_module llmodule ;
     Llvm_analysis.assert_valid_function main_v ;
     let _ = Llvm.PassManager.run_function main_v fpm in

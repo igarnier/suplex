@@ -28,4 +28,9 @@ module Term (X : Suplex.Lang.S) = struct
   (* print _result2 *)
 end
 
-module Foo = Suplex.Compile.Codegen (Term)
+(* module Foo = Suplex.Compile.Codegen (Term) *)
+module S = Suplex.S.Repr
+
+(* let _ = Suplex.S.res *)
+
+let _ = Suplex.S2.res

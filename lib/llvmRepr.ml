@@ -230,15 +230,15 @@ let get_external ~name : Llvm.llvalue State.t =
       failwith msg
   | Some result -> State.{ state; result }
 
-let type_is_function (type t) (typ : t T.typ) : bool =
-  match typ with
-  | T.TFun _ -> true
-  | T.TBool -> false
-  | T.TUnit -> false
-  | T.TNum _ -> false
-  | T.TPtr _ -> false
-  | T.TVec _ -> false
-  | T.TTpl _ -> false
+(* let type_is_function (type t) (typ : t T.typ) : bool =
+ *   match typ with
+ *   | T.TFun _ -> true
+ *   | T.TBool -> false
+ *   | T.TUnit -> false
+ *   | T.TNum _ -> false
+ *   | T.TPtr _ -> false
+ *   | T.TVec _ -> false
+ *   | T.TTpl _ -> false *)
 
 let build_malloc_fptr lltype count =
   let open State in
@@ -572,9 +572,6 @@ let cond (type t) (cond : T.bool_t repr) (bt : t repr) (bf : t repr) =
   (* Move inserter at end of join block. *)
   Llvm.position_at_end joinblock bld ;
   llreturn phi bf_v.typewit
-
-(* let decl (type t) (numtyp : t T.numerical) =
- *   { cont = (fun (type b) (k : t T.ptr_t repr -> b repr) -> assert false) } *)
 
 let fresh_state () =
   let llvm_context = Llvm.global_context () in

@@ -29,30 +29,25 @@ module type Type_system_sig = sig
     | TNum : 'a numerical -> 'a typ
     | TPtr : 'a typ -> 'a ref typ
     | TVec : int option * 'a typ -> 'a array typ
-    | TRecord : (_, _, 't vec, 't vec) record -> 't vec typ
+    | TRecord : (_, _, 'u vec, 'u vec, 't) record -> 't typ
 
-  and ('intro, 'elim, 't_acc, 't) record =
-    | Record_empty
-        : ( ('t vec, const) m,
-            (* 't needs to be unified to the total type of the record *)
-            unit,
-            unit vec,
-            't vec )
-          record
+  and ('intro, 'elim, 't_acc, 't, 'u) record =
+    | Record_empty : (('u, const) m, unit, unit vec, 't vec, 'u) record
     | Record_field :
-        ('a, 't vec) field * ('i, 'e, 't_acc vec, 't vec) record
+        ('a, 'u) field * ('i, 'e, 't_acc vec, 't vec, 'u) record
         -> ( ('a, const) m -> 'i,
-             'e * ('a, 't) proj,
+             'e * ('a, 'u) proj,
              ('a * 't_acc) vec,
-             't vec )
+             't vec,
+             'u )
            record
     | Record_fix :
-        int * ('d vec typ -> ('a, 'b, 'd vec, 'd vec) record)
-        -> ('a, 'b, 'd vec, 'd vec) record
+        int * ('u typ -> ('a, 'b, 'd vec, 'd vec, 'u) record)
+        -> ('a, 'b, 'd vec, 'd vec, 'u) record
 
   and ('a, 't) field = { name : string; ty : 'a typ }
 
-  and ('a, 't) proj = { proj : 'c. ('t vec ref, 'c) m -> ('a ref, 'c) m }
+  and ('a, 'u) proj = { proj : 'c. ('u ref, 'c) m -> ('a ref, 'c) m }
 
   and (!'a, +'c) m = ('a, 'a typ, 'c) typed_term
 
@@ -80,20 +75,20 @@ module type Type_system_sig = sig
 
   val vec : ?static_size:int -> 'a typ -> 'a array typ
 
-  val empty_rec : (('a vec, const) m, unit, unit vec, 'a vec) record
+  val empty_rec : (('u, const) m, unit, unit vec, 't vec, 'u) record
 
-  val field : string -> 'a typ -> ('a, 'b vec) field
+  val field : string -> 'a typ -> ('a, 'u) field
 
   val ( |+ ) :
-    ('a, 'b, 'c vec, 'd vec) record ->
-    ('e, 'd vec) field ->
-    (('e, const) m -> 'a, 'b * ('e, 'd) proj, ('e * 'c) vec, 'd vec) record
+    ('a, 'b, 'c vec, 'd vec, 'e) record ->
+    ('f, 'e) field ->
+    (('f, const) m -> 'a, 'b * ('f, 'e) proj, ('f * 'c) vec, 'd vec, 'e) record
 
   val fix :
-    ('d vec typ -> ('a, 'b, 'd vec, 'd vec) record) ->
-    ('a, 'b, 'd vec, 'd vec) record
+    ('u typ -> ('a, 'b, 'd vec, 'd vec, 'u) record) ->
+    ('a, 'b, 'd vec, 'd vec, 'u) record
 
-  val seal : ('a, 'b, 'd vec, 'd vec) record -> 'd vec typ
+  val seal : ('a, 'b, 'd vec, 'd vec, 'u) record -> 'u typ
 end
 
 module Make_type_system (M : sig
@@ -123,30 +118,25 @@ struct
     | TNum : 'a numerical -> 'a typ
     | TPtr : 'a typ -> 'a ref typ
     | TVec : int option * 'a typ -> 'a array typ
-    | TRecord : (_, _, 't vec, 't vec) record -> 't vec typ
+    | TRecord : (_, _, 'u vec, 'u vec, 't) record -> 't typ
 
-  and ('intro, 'elim, 't_acc, 't) record =
-    | Record_empty
-        : ( ('t vec, const) m,
-            (* 't needs to be unified to the total type of the record *)
-            unit,
-            unit vec,
-            't vec )
-          record
+  and ('intro, 'elim, 't_acc, 't, 'u) record =
+    | Record_empty : (('u, const) m, unit, unit vec, 't vec, 'u) record
     | Record_field :
-        ('a, 't vec) field * ('i, 'e, 't_acc vec, 't vec) record
+        ('a, 'u) field * ('i, 'e, 't_acc vec, 't vec, 'u) record
         -> ( ('a, const) m -> 'i,
-             'e * ('a, 't) proj,
+             'e * ('a, 'u) proj,
              ('a * 't_acc) vec,
-             't vec )
+             't vec,
+             'u )
            record
     | Record_fix :
-        int * ('d vec typ -> ('a, 'b, 'd vec, 'd vec) record)
-        -> ('a, 'b, 'd vec, 'd vec) record
+        int * ('u typ -> ('a, 'b, 'd vec, 'd vec, 'u) record)
+        -> ('a, 'b, 'd vec, 'd vec, 'u) record
 
   and ('a, 't) field = { name : string; ty : 'a typ }
 
-  and ('a, 't) proj = { proj : 'c. ('t vec ref, 'c) m -> ('a ref, 'c) m }
+  and ('a, 'u) proj = { proj : 'c. ('u ref, 'c) m -> ('a ref, 'c) m }
 
   and (!'a, +'c) m = ('a, 'a typ, 'c) typed_term
 
@@ -195,7 +185,7 @@ struct
      | TRecord descr ->
          let rec loop :
              type w x y z.
-             int list -> Format.formatter -> (w, x, y, z) record -> unit =
+             int list -> Format.formatter -> (w, x, y, z, a) record -> unit =
           fun visited fmtr descr ->
            match descr with
            | Record_empty -> ()
@@ -204,14 +194,14 @@ struct
                Format.fprintf fmtr ";@," ;
                loop visited fmtr rest
            | Record_fix (id, f) ->
-               if List.mem id visited then Format.fprintf fmtr "{%d}" id
+               if List.mem id visited then Format.fprintf fmtr "#%d" id
                else
                  Format.fprintf
                    fmtr
                    "fix %d. %a"
                    id
                    (loop (id :: visited))
-                   (f (Obj.magic typ))
+                   (f typ)
          in
          Format.fprintf fmtr "@[{" ;
          loop visited fmtr descr ;
@@ -367,9 +357,13 @@ module type S = sig
 
   val array : ('a, const) m array -> ('a array, const) m
 
-  val struct_ : ('intro, _, 'a vec, 'a vec) Type_system.record -> 'intro
+  val struct_ :
+    ('intro, _, 'a vec, 'a vec, 'u) Type_system.record ->
+    ('a vec -> 'u) ->
+    'intro
 
-  val projs : (_, 'elim, 'a vec, 'a vec) Type_system.record -> 'elim
+  val projs :
+    (_, 'elim, 'a vec, 'a vec, 'u) Type_system.record -> ('u -> 'a vec) -> 'elim
 
   val seq : (unit, _) m -> (unit -> ('a, unknown) m) -> ('a, unknown) m
 
@@ -378,9 +372,9 @@ module type S = sig
 
   val store : ('a ref, not_const) m -> ('a, _) m -> (unit, unknown) m
 
-  val load : ('a ref, _) m -> ('a, unknown) m
+  val load : ('a ref, 'c) m -> ('a, 'c) m
 
-  val get : ('a array, _) m -> (int64, _) m -> ('a, unknown) m
+  val get : ('a array, 'c) m -> (int64, _) m -> ('a, 'c) m
 
   val set :
     ('a array, not_const) m -> (int64, _) m -> ('a, _) m -> (unit, unknown) m
@@ -658,59 +652,64 @@ end = struct
 
   let array arr = arr
 
-  let struct_ : type intro. (intro, _, _ vec, _ vec) record -> intro =
-    fun (type res) (record : (intro, _, res vec, res vec) record) ->
-     let rec loop :
-         type intro elim acc.
-         (intro, elim, acc vec, res vec) Type_system.record ->
-         (acc vec -> res vec) ->
-         intro =
-      fun (descr : (intro, elim, acc vec, res vec) Type_system.record) k ->
-       match descr with
-       | Record_empty -> k Nil_vec
-       | Record_field (_field, rest) ->
-           fun arg -> loop rest (fun x -> k (Cons_vec (arg, x)))
-       | Record_fix (_id, f) ->
-           (* Can only appear at top-level *)
-           loop (f (seal descr)) k
-     in
-     loop record (fun x -> x)
+  let struct_ :
+      type intro res u.
+      (intro, _, res vec, res vec, u) record -> (res vec -> u) -> intro =
+   fun (record : (intro, _, res vec, res vec, u) record) conv ->
+    let rec loop :
+        type intro elim acc.
+        (intro, elim, acc vec, res vec, u) Type_system.record ->
+        (acc vec -> res vec) ->
+        intro =
+     fun (descr : (intro, elim, acc vec, res vec, u) Type_system.record) k ->
+      match descr with
+      | Record_empty -> conv (k Nil_vec)
+      | Record_field (_field, rest) ->
+          fun arg -> loop rest (fun x -> k (Cons_vec (arg, x)))
+      | Record_fix (_id, f) ->
+          (* Can only appear at top-level *)
+          loop (f (seal descr)) k
+    in
+    loop record (fun x -> x)
 
   module Crazy_hack = struct
     (* I just don't understand *)
 
     type ('a, 'b) u = 'a
 
-    type ('a, 't) local_proj = { f : 'c. ('t vec ref, 'c) u -> ('a ref, 'c) u }
+    type ('a, 't) local_proj = { f : 'c. ('t ref, 'c) u -> ('a ref, 'c) u }
 
     let local_to_proj : ('a, 'b) local_proj -> ('a, 'b) proj = Obj.magic
   end
 
-  let projs : type elim. (_, elim, _ vec, _ vec) record -> elim =
-    fun (type res) (record : (_, elim, res vec, res vec) record) ->
-     let rec loop :
-         type intro elim acc.
-         (intro, elim, acc vec, res vec) Type_system.record ->
-         (res vec -> acc vec) ->
-         elim =
-      fun descr prj ->
-       match descr with
-       | Record_empty -> ()
-       | Record_field (_field, rest) ->
-           let proj : (_, res) proj =
-             Crazy_hack.local_to_proj
-               { f =
-                   (fun record ->
-                     match prj !record with Cons_vec (x, _) -> ref x)
-               }
-           in
-           let elims =
-             loop rest (fun vec -> match prj vec with Cons_vec (_, tl) -> tl)
-           in
-           ((elims, proj) : elim)
-       | Record_fix (_id, f) -> loop (f (seal descr)) prj
-     in
-     loop record (fun x -> x)
+  let projs :
+      type elim res u.
+      (_, elim, res vec, res vec, u) record -> (u -> res vec) -> elim =
+   fun (record : (_, elim, res vec, res vec, _) record) conv ->
+    let rec loop :
+        type intro elim acc.
+        (intro, elim, acc vec, res vec, u) Type_system.record ->
+        (res vec -> acc vec) ->
+        elim =
+     fun descr prj ->
+      match descr with
+      | Record_empty -> ()
+      | Record_field (_field, rest) ->
+          let proj : (_, u) proj =
+            (* Without this crazy hack OCaml can't generalize as it should. *)
+            Crazy_hack.local_to_proj
+              { f =
+                  (fun record ->
+                    match prj (conv !record) with Cons_vec (x, _) -> ref x)
+              }
+          in
+          let elims =
+            loop rest (fun vec -> match prj vec with Cons_vec (_, tl) -> tl)
+          in
+          ((elims, proj) : elim)
+      | Record_fix (_id, f) -> loop (f (seal descr)) prj
+    in
+    loop record (fun x -> x)
 end
 
 let _fact_example () =
@@ -947,12 +946,16 @@ end = struct
                match Hashtbl.find_opt struct_table id with
                | Some ty -> return ty
                | _ ->
-                   let* struct_type = struct_of_tuple record_descr in
-                   Hashtbl.add struct_table id struct_type ;
-                   return struct_type)
+                   let name = Printf.sprintf "struct_%d" id in
+                   let named_strct = Llvm.named_struct_type context name in
+                   Hashtbl.add struct_table id named_strct ;
+                   struct_of_tuple record_descr (fun fields ->
+                       let packed = false in
+                       Llvm.struct_set_body named_strct fields packed ;
+                       return named_strct))
            | _ ->
-               let* struct_type = struct_of_tuple record_descr in
-               return struct_type)
+               struct_of_tuple record_descr (fun fields ->
+                   return (Llvm.struct_type context fields)))
 
     and of_numerical : type a. a Type_system.numerical -> t LLVM_state.t =
       fun (type a) (typ : a Type_system.numerical) : Llvm.lltype LLVM_state.t ->
@@ -966,14 +969,13 @@ end = struct
        | _ -> assert false
 
     and struct_of_tuple :
-        type a b c d. (a, b, c, d) Type_system.record -> t LLVM_state.t =
-     fun descr ->
+        type a b c d u.
+        (a, b, c, d, u) Type_system.record -> _ -> t LLVM_state.t =
+     fun descr k ->
       let open LLVM_state in
-      let* context in
-
       let rec loop :
-          type a b c d.
-          (a, b, c, d) Type_system.record ->
+          type a b c d u.
+          (a, b, c, d, u) Type_system.record ->
           Llvm.lltype list ->
           (Llvm.lltype array -> Llvm.lltype k) ->
           Llvm.lltype LLVM_state.t =
@@ -988,15 +990,20 @@ end = struct
         | Type_system.Record_fix (id, f) ->
             let unfolded = f (seal descr) in
             assert (acc = []) ;
-            assert (not (Hashtbl.mem struct_table id)) ;
-            loop unfolded acc (fun fields ->
-                let name = Printf.sprintf "struct_%d" id in
-                let named_strct = Llvm.named_struct_type context name in
-                let packed = false in
-                Llvm.struct_set_body named_strct fields packed ;
-                return named_strct)
+            assert (Hashtbl.mem struct_table id) ;
+            loop unfolded acc k
       in
-      loop descr [] (fun fields -> return (Llvm.struct_type context fields))
+      loop descr [] k
+
+    let of_type ty =
+      let open LLVM_state in
+      let* res = of_type ty in
+      Format.printf
+        "us: %a llvm: %s@."
+        Type_system.pp_typ
+        ty
+        (Llvm.string_of_lltype res) ;
+      return res
   end
 
   module type Numerical =
@@ -1060,9 +1067,10 @@ end = struct
   let null_ptr : 'a typ -> ('a ref, const) Type_system.m =
     let open LLVM_state in
     fun ty ->
-      let* llty = LLVM_type.of_type ty in
-      let llval = Llvm.const_pointer_null llty in
-      llreturn llval (Type_system.ptr ty)
+      let ptrty = Type_system.ptr ty in
+      let* llty = LLVM_type.of_type ptrty in
+      let llval = Llvm.const_null llty in
+      llreturn llval ptrty
 
   module I64 : Numerical with type t = int64 and type v = int64 = struct
     type t = int64
@@ -1219,19 +1227,31 @@ end = struct
     let array = Llvm.const_array llvm_elt_ty (Array.map llval elements) in
     llreturn array (Type_system.vec ~static_size:(Array.length elements) elt_ty)
 
-  let struct_ : type intro. (intro, _, _ vec, _ vec) record -> intro =
-    fun (type res) (record : (intro, _, res vec, res vec) record) ->
+  let struct_ : type intro. (intro, _, _ vec, _ vec, _) record -> _ -> intro =
+    fun (type res u) (record : (intro, _, res vec, res vec, u) record) _conv ->
      let open LLVM_state in
      let rec loop :
          type intro elim acc.
-         (intro, elim, acc vec, res vec) Type_system.record -> _ -> intro =
-      fun (descr : (intro, _, _, res vec) Type_system.record) acc ->
+         (intro, elim, acc vec, res vec, u) Type_system.record ->
+         _ ->
+         _ ->
+         intro =
+      fun (descr : (intro, _, _, res vec, u) Type_system.record)
+          acc
+          named_struct_id_opt ->
        match descr with
        | Record_empty ->
            (let* context in
             let* acc in
             let vs = List.rev acc in
-            let strct = Llvm.const_struct context (Array.of_list vs) in
+            let strct =
+              match named_struct_id_opt with
+              | None -> Llvm.const_struct context (Array.of_list vs)
+              | Some id -> (
+                  match Hashtbl.find_opt LLVM_type.struct_table id with
+                  | None -> assert false
+                  | Some ty -> Llvm.const_named_struct ty (Array.of_list vs))
+            in
             llreturn strct (Type_system.seal record)
              : intro)
        | Record_field (_, rest) ->
@@ -1241,24 +1261,25 @@ end = struct
                 (let* arg in
                  let* acc in
                  return (llval arg :: acc))
+                named_struct_id_opt
              : intro)
-       | Record_fix (_id, f) -> loop (f (seal descr)) acc
+       | Record_fix (id, f) -> loop (f (seal descr)) acc (Some id)
      in
-     loop record (return [])
+     loop record (return []) None
 
-  let projs : type elim res. (_, elim, _, res) record -> elim =
-   fun record ->
+  let projs : type elim res u. (_, elim, _, res, u) record -> _ -> elim =
+   fun record _conv ->
     let open LLVM_state in
     let rec loop :
         type intro elim acc.
-        (intro, elim, acc, res) Type_system.record -> int -> elim =
-     fun (descr : (intro, elim, acc, res) Type_system.record) index ->
+        (intro, elim, acc, res, u) Type_system.record -> int -> elim =
+     fun (descr : (intro, elim, acc, res, u) Type_system.record) index ->
       match descr with
       | Record_empty -> (() : elim)
       | Record_field (field, rest) ->
           let proj =
             { proj =
-                (fun (type c) (record : (res ref, c) m) ->
+                (fun (type c) (record : (u ref, c) m) ->
                   let* builder in
                   let* record in
                   let elt_ptr =
@@ -1296,15 +1317,15 @@ end = struct
     let _ = Llvm.build_store (llval v) (llval ptr) builder in
     unit_unknown
 
-  let load (type a) (ptr : (a ref, _) m) : (a, unknown) m =
+  let load (type a) (ptr : (a ref, 'c) m) : (a, 'c) m =
     let open LLVM_state in
     let* builder in
     let* ptr in
     match typeof ptr with
     | TPtr typ -> llreturn (Llvm.build_load (llval ptr) "load_tmp" builder) typ
-    | TNum _ -> assert false
+    | TNum _ | TRecord _ -> assert false
 
-  let get (type a) (arr : (a array, _) m) (i : (int64, _) m) : (a, unknown) m =
+  let get (type a) (arr : (a array, 'c) m) (i : (int64, _) m) : (a, 'c) m =
     let open LLVM_state in
     let* builder in
     let* arr in
@@ -1337,7 +1358,7 @@ end = struct
           Llvm.build_gep (llval arr) [| llval i |] "get_gep" builder
       | TVec (Some _, _) ->
           Llvm.build_in_bounds_gep (llval arr) [| llval i |] "get_gep" builder
-      | TNum _ -> assert false
+      | TNum _ | TRecord _ -> assert false
     in
     let _ = Llvm.build_store (llval e) addr builder in
     unit_unknown
@@ -1534,7 +1555,13 @@ end = struct
             | Scalar_init { init; ptr } :: rest ->
                 let* builder in
                 let* init in
-                let _ = Llvm.build_store (llval init) ptr builder in
+                let store = Llvm.build_store (llval init) ptr builder in
+                Format.printf
+                  "init: %s with type %a@."
+                  (Llvm.string_of_llvalue (llval init))
+                  Type_system.pp_typ
+                  (typeof init) ;
+                Format.printf "store: %s@." (Llvm.string_of_llvalue store) ;
                 initialize rest
             | Array_init { init; arr; size } :: rest ->
                 let size = llreturn size Type_system.int64 in
@@ -1683,110 +1710,3 @@ end = struct
     in
     loop f.signature args (return [])
 end
-
-module Repr = LLVM_repr ()
-
-let (state, fundecl) =
-  Repr.LLVM_state.run
-  @@
-  let open Repr.LLVM_state in
-  let* fact =
-    let open Repr in
-    fundecl
-      ~name:"fact"
-      ~signature:Prototype.(Type_system.int64 @-> returning Type_system.int64)
-      ~local:Stack_frame.(single Type_system.int64 (I64.v 1L) @+ empty)
-      ~body:(fun acc (* _strct *) (n, ()) ->
-        let* n = cond (I64.eq n n) (fun _ -> n) in
-        let* n =
-          switch_i64
-            n
-            ~cases:
-              [| (0L, fun () -> I64.add n (I64.v 0L));
-                 (3L, fun () -> I64.add n (I64.v 3L))
-              |]
-            ~default:(fun () -> n)
-        in
-        let* _ =
-          for_
-            ~init:(I64.v 1L)
-            ~pred:(fun i -> I64.le i n)
-            ~step:(fun i -> I64.add i (I64.v 1L))
-            (fun i -> store acc (I64.mul (load acc) i))
-        in
-        load acc)
-  in
-  let* init_array_then_sum =
-    let open Repr in
-    let open Type_system in
-    let record : (_, _, _, _) record =
-      empty_rec |+ field "f1" int64 |+ field "f2" F64.t
-    in
-    let with_array =
-      fix @@ fun with_array ->
-      empty_rec
-      |+ field "a" (vec ~static_size:3 (seal record))
-      |+ field "f2" F64.t |+ field "next" with_array
-    in
-    let open Type_system in
-    let (((), f1), _f2) = projs record in
-    fundecl
-      ~name:"init_then_sum"
-      ~signature:Prototype.(returning I64.t)
-      ~local:
-        Stack_frame.(
-          array_i64 int64 (I64.v 1L) (I64.v 10L :> (int64, unknown) m)
-          @+ single int64 (I64.v 0L)
-          @+ single (seal record) (struct_ record (F64.v 12.) (I64.v 13L))
-          @+ single
-               (seal with_array)
-               (struct_
-                  with_array
-                  (F64.v 12.)
-                  (array
-                     [| struct_ record (F64.v 12.) (I64.v 13L);
-                        struct_ record (F64.v 12.) (I64.v 13L);
-                        struct_ record (F64.v 12.) (I64.v 13L)
-                     |]))
-          @+ empty)
-      ~body:(fun arr acc strct _ () ->
-        let* _ =
-          for_
-            ~init:(I64.v 0L)
-            ~pred:(fun i -> I64.lt i (I64.v 10L))
-            ~step:(fun i -> I64.add i (I64.v 1L))
-            (fun i -> store acc (I64.add (get arr i) (load acc)))
-        in
-        let* _ = store (f1.proj strct) (I64.v 66L) in
-        let* x1 = load (f1.proj strct) in
-        I64.add (load acc) x1)
-  in
-
-  let* main =
-    let open Repr in
-    fundecl
-      ~name:"main"
-      ~signature:Prototype.(returning Type_system.int64)
-      ~local:Stack_frame.empty
-      ~body:(fun () ->
-        let* fact_res = call fact Prototype.[I64.v 6L] in
-        let* sum_res = call init_array_then_sum Prototype.[] in
-        I64.add fact_res sum_res)
-  in
-  return main
-
-let res =
-  let engine = Llvm_executionengine.create state.llvm_module in
-
-  let fpm = Llvm.PassManager.create () in
-  Llvm.dump_module state.llvm_module ;
-  let _ = Llvm.PassManager.run_module state.llvm_module fpm in
-
-  let fn_typ : (unit -> int64) Ctypes.fn =
-    Ctypes.(void @-> returning int64_t)
-  in
-  let fn_ptr_typ = Foreign.funptr fn_typ in
-  let f = Llvm_executionengine.get_function_address "main" fn_ptr_typ engine in
-  let res = f () in
-  let () = Format.printf "executing = %Ld@." res in
-  Llvm_executionengine.dispose engine

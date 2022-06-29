@@ -46,6 +46,9 @@ module type Type_system_sig = sig
              ('a * 't_acc) vec,
              't vec )
            record
+    | Record_fix :
+        int * ('d vec typ -> ('a, 'b, 'd vec, 'd vec) record)
+        -> ('a, 'b, 'd vec, 'd vec) record
 
   and ('a, 't) field = { name : string; ty : 'a typ }
 
@@ -85,6 +88,10 @@ module type Type_system_sig = sig
     ('a, 'b, 'c vec, 'd vec) record ->
     ('e, 'd vec) field ->
     (('e, const) m -> 'a, 'b * ('e, 'd) proj, ('e * 'c) vec, 'd vec) record
+
+  val fix :
+    ('d vec typ -> ('a, 'b, 'd vec, 'd vec) record) ->
+    ('a, 'b, 'd vec, 'd vec) record
 
   val seal : ('a, 'b, 'd vec, 'd vec) record -> 'd vec typ
 end
@@ -133,6 +140,9 @@ struct
              ('a * 't_acc) vec,
              't vec )
            record
+    | Record_fix :
+        int * ('d vec typ -> ('a, 'b, 'd vec, 'd vec) record)
+        -> ('a, 'b, 'd vec, 'd vec) record
 
   and ('a, 't) field = { name : string; ty : 'a typ }
 
@@ -171,31 +181,43 @@ struct
 
   type ('a, 'b) eq = Refl_eq : ('a, 'a) eq
 
-  let rec pp_typ : type a. Format.formatter -> a typ -> unit =
-    fun (type a) fmtr (typ : a typ) ->
+  let rec pp_typ : type a. int list -> Format.formatter -> a typ -> unit =
+    fun (type a) visited fmtr (typ : a typ) ->
      match typ with
      | TUnit -> Format.pp_print_string fmtr "unit"
      | TBool -> Format.pp_print_string fmtr "bool"
      | TNum n -> pp_numerical fmtr n
-     | TPtr t -> Format.fprintf fmtr "[%a]" pp_typ t
+     | TPtr t -> Format.fprintf fmtr "[%a]" (pp_typ visited) t
      | TVec (static_size, t) -> (
          match static_size with
-         | None -> Format.fprintf fmtr "<%a>" pp_typ t
-         | Some sz -> Format.fprintf fmtr "<%a:%d>" pp_typ t sz)
+         | None -> Format.fprintf fmtr "<%a>" (pp_typ visited) t
+         | Some sz -> Format.fprintf fmtr "<%a:%d>" (pp_typ visited) t sz)
      | TRecord descr ->
          let rec loop :
-             type w x y z. Format.formatter -> (w, x, y, z) record -> unit =
-          fun fmtr descr ->
+             type w x y z.
+             int list -> Format.formatter -> (w, x, y, z) record -> unit =
+          fun visited fmtr descr ->
            match descr with
            | Record_empty -> ()
            | Record_field (field, rest) ->
-               Format.fprintf fmtr "%s: %a" field.name pp_typ field.ty ;
+               Format.fprintf fmtr "%s: %a" field.name (pp_typ visited) field.ty ;
                Format.fprintf fmtr ";@," ;
-               loop fmtr rest
+               loop visited fmtr rest
+           | Record_fix (id, f) ->
+               if List.mem id visited then Format.fprintf fmtr "{%d}" id
+               else
+                 Format.fprintf
+                   fmtr
+                   "fix %d. %a"
+                   id
+                   (loop (id :: visited))
+                   (f (Obj.magic typ))
          in
          Format.fprintf fmtr "@[{" ;
-         loop fmtr descr ;
+         loop visited fmtr descr ;
          Format.fprintf fmtr "}@]"
+
+  let pp_typ fmtr typ = pp_typ [] fmtr typ
 
   let unit = TUnit
 
@@ -217,6 +239,17 @@ struct
   let field name ty = { name; ty }
 
   let ( |+ ) rest field = Record_field (field, rest)
+
+  let gensym =
+    let struct_id = ref 0 in
+    fun () ->
+      let id = !struct_id in
+      incr struct_id ;
+      id
+
+  let fix f =
+    let id = gensym () in
+    Record_fix (id, f)
 
   let seal descr = TRecord descr
 end
@@ -637,6 +670,9 @@ end = struct
        | Record_empty -> k Nil_vec
        | Record_field (_field, rest) ->
            fun arg -> loop rest (fun x -> k (Cons_vec (arg, x)))
+       | Record_fix (_id, f) ->
+           (* Can only appear at top-level *)
+           loop (f (seal descr)) k
      in
      loop record (fun x -> x)
 
@@ -672,6 +708,7 @@ end = struct
              loop rest (fun vec -> match prj vec with Cons_vec (_, tl) -> tl)
            in
            ((elims, proj) : elim)
+       | Record_fix (_id, f) -> loop (f (seal descr)) prj
      in
      loop record (fun x -> x)
 end
@@ -717,6 +754,8 @@ module LLVM_repr () : sig
   end
 
   include S with type 'a k = 'a LLVM_state.t
+
+  val null_ptr : 'a Type_system.typ -> ('a ref, const) Type_system.m
 
   module I32 : Numerical with type t = int32 and type v = int32
 
@@ -879,6 +918,8 @@ end = struct
 
     let float64_t ctxt = Llvm.double_type ctxt
 
+    let struct_table = Hashtbl.create 11
+
     (* Convert type to Llvm repr *)
     let rec of_type : type a. a Type_system.typ -> t LLVM_state.t =
       fun (type a) (typ : a Type_system.typ) : t LLVM_state.t ->
@@ -900,9 +941,18 @@ end = struct
                let* lltyp = of_type typ in
                return (Llvm.array_type lltyp sz)
            | _ -> failwith "LLVM_type.of_type: negative size in array type")
-       | TRecord record_descr ->
-           let* struct_type = struct_of_tuple record_descr in
-           return struct_type
+       | TRecord record_descr -> (
+           match record_descr with
+           | Record_fix (id, _) -> (
+               match Hashtbl.find_opt struct_table id with
+               | Some ty -> return ty
+               | _ ->
+                   let* struct_type = struct_of_tuple record_descr in
+                   Hashtbl.add struct_table id struct_type ;
+                   return struct_type)
+           | _ ->
+               let* struct_type = struct_of_tuple record_descr in
+               return struct_type)
 
     and of_numerical : type a. a Type_system.numerical -> t LLVM_state.t =
       fun (type a) (typ : a Type_system.numerical) : Llvm.lltype LLVM_state.t ->
@@ -918,23 +968,35 @@ end = struct
     and struct_of_tuple :
         type a b c d. (a, b, c, d) Type_system.record -> t LLVM_state.t =
      fun descr ->
+      let open LLVM_state in
+      let* context in
+
       let rec loop :
           type a b c d.
           (a, b, c, d) Type_system.record ->
           Llvm.lltype list ->
-          Llvm.lltype list LLVM_state.t =
-       fun descr acc ->
-        let open LLVM_state in
+          (Llvm.lltype array -> Llvm.lltype k) ->
+          Llvm.lltype LLVM_state.t =
+       fun descr acc k ->
         match descr with
-        | Type_system.Record_empty -> return (List.rev acc)
+        | Type_system.Record_empty ->
+            let fields = List.rev acc in
+            k (Array.of_list fields)
         | Type_system.Record_field (field, rest) ->
             let* typ = of_type field.ty in
-            loop rest (typ :: acc)
+            loop rest (typ :: acc) k
+        | Type_system.Record_fix (id, f) ->
+            let unfolded = f (seal descr) in
+            assert (acc = []) ;
+            assert (not (Hashtbl.mem struct_table id)) ;
+            loop unfolded acc (fun fields ->
+                let name = Printf.sprintf "struct_%d" id in
+                let named_strct = Llvm.named_struct_type context name in
+                let packed = false in
+                Llvm.struct_set_body named_strct fields packed ;
+                return named_strct)
       in
-      let open LLVM_state in
-      let* context in
-      let* res = loop descr [] in
-      return (Llvm.struct_type context (Array.of_list res))
+      loop descr [] (fun fields -> return (Llvm.struct_type context fields))
   end
 
   module type Numerical =
@@ -994,6 +1056,13 @@ end = struct
     let* rhs in
     let llval = op (llval lhs) (llval rhs) name builder in
     llreturn llval bool
+
+  let null_ptr : 'a typ -> ('a ref, const) Type_system.m =
+    let open LLVM_state in
+    fun ty ->
+      let* llty = LLVM_type.of_type ty in
+      let llval = Llvm.const_pointer_null llty in
+      llreturn llval (Type_system.ptr ty)
 
   module I64 : Numerical with type t = int64 and type v = int64 = struct
     type t = int64
@@ -1173,6 +1242,7 @@ end = struct
                  let* acc in
                  return (llval arg :: acc))
              : intro)
+       | Record_fix (_id, f) -> loop (f (seal descr)) acc
      in
      loop record (return [])
 
@@ -1203,6 +1273,7 @@ end = struct
           in
           let elims = loop rest (index + 1) in
           ((elims, proj) : elim)
+      | Record_fix (_id, f) -> loop (f (seal descr)) index
     in
     loop record 0
 
@@ -1652,9 +1723,10 @@ let (state, fundecl) =
       empty_rec |+ field "f1" int64 |+ field "f2" F64.t
     in
     let with_array =
+      fix @@ fun with_array ->
       empty_rec
       |+ field "a" (vec ~static_size:3 (seal record))
-      |+ field "f2" F64.t
+      |+ field "f2" F64.t |+ field "next" with_array
     in
     let open Type_system in
     let (((), f1), _f2) = projs record in

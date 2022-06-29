@@ -19,4 +19,5 @@
 ;;  (foreign_stubs (language c) (names externals))
   (preprocess (pps ppx_deriving.show ppx_deriving.eq ppx_deriving.ord ppx_bin_prot))
   (library_flags (-cclib lib/libexternals.a))
+  (ocamlopt_flags (-g -rectypes))
 )

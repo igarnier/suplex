@@ -2,4 +2,4 @@
  (name test)
  (libraries suplex)
  (modes native)
- (ocamlopt_flags (-g)))
+ (ocamlopt_flags (-g -rectypes)))

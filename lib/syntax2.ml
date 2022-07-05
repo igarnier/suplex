@@ -374,7 +374,7 @@ module type S = sig
 
   val load : ('a ref, 'c) m -> ('a, 'c) m
 
-  val get : ('a array, 'c) m -> (int64, _) m -> ('a, 'c) m
+  val get : ('a array, 'c) m -> (int64, _) m -> ('a ref, 'c) m
 
   val set :
     ('a array, not_const) m -> (int64, _) m -> ('a, _) m -> (unit, unknown) m
@@ -609,7 +609,9 @@ end = struct
 
   let load ptr = !ptr
 
-  let get vec index = vec.(Int64.to_int index)
+  let get vec index =
+    (* TODO that's clearly not what we want... *)
+    ref vec.(Int64.to_int index)
 
   let set vec index elt = vec.(Int64.to_int index) <- elt
 
@@ -1325,7 +1327,7 @@ end = struct
     | TPtr typ -> llreturn (Llvm.build_load (llval ptr) "load_tmp" builder) typ
     | TNum _ | TRecord _ -> assert false
 
-  let get (type a) (arr : (a array, 'c) m) (i : (int64, _) m) : (a, 'c) m =
+  let get (type a) (arr : (a array, 'c) m) (i : (int64, _) m) : (a ref, 'c) m =
     let open LLVM_state in
     let* builder in
     let* arr in
@@ -1342,7 +1344,7 @@ end = struct
                 "get_gep_inbounds"
                 builder
         in
-        llreturn (Llvm.build_load addr "get_load_tmp" builder) typ
+        llreturn addr (ptr typ)
     | _ -> assert false
 
   let set (type a) (arr : (a array, not_const) m) (i : (int64, _) m)

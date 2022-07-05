@@ -69,6 +69,23 @@ let (state, fundecl) =
   Repr.LLVM_state.run
   @@
   let open Repr.LLVM_state in
+  let* edit_array_fundecl =
+    let open Repr in
+    let open Type_system in
+    fundecl
+      ~name:"edit_array"
+      ~signature:Prototype.(returning I64.t)
+      ~local:
+        Stack_frame.(
+          array_i64 Record.t Record.zero (I64.v 2L :> (_, unknown) m) @+ empty)
+      ~body:(fun arr () ->
+        let* elt1 = get arr (I64.v 0L) in
+        let* elt2 = get arr (I64.v 1L) in
+        let* _ = set arr (I64.v 1L) (load elt1) in
+        let* _ = set arr (I64.v 0L) (load elt2) in
+        I64.add (load @@ Record.f1.proj elt1) (load @@ Record.f1.proj elt2))
+  in
+
   let* fact =
     let open Repr in
     fundecl
@@ -114,28 +131,11 @@ let (state, fundecl) =
             ~init:(I64.v 0L)
             ~pred:(fun i -> I64.lt i (I64.v 10L))
             ~step:(fun i -> I64.add i (I64.v 1L))
-            (fun i -> store acc (I64.add (get arr i) (load acc)))
+            (fun i -> store acc (I64.add (load (get arr i)) (load acc)))
         in
         let* _ = store (Record.f1.proj strct) (I64.v 66L) in
         let* x1 = load (Record.f1.proj strct) in
         I64.add (load acc) x1)
-  in
-
-  let edit_array_fundecl =
-    let open Repr in
-    let open Type_system in
-    fundecl
-      ~name:"edit_array_sum"
-      ~signature:Prototype.(returning I64.t)
-      ~local:
-        Stack_frame.(
-          array_i64 Record.t Record.zero (I64.v 2L :> (_, unknown) m) @+ empty)
-      ~body:(fun arr () ->
-        let* elt1 = get arr (I64.v 0L) in
-        let* elt2 = get arr (I64.v 1L) in
-        let* _ = set arr (I64.v 1L) elt1 in
-        let* _ = set arr (I64.v 0L) elt2 in
-        I64.add (load @@ Record.f1.proj elt1) (load @@ Record.f1.proj elt2))
   in
 
   let* main =
@@ -147,6 +147,7 @@ let (state, fundecl) =
       ~body:(fun () ->
         let* fact_res = call fact Prototype.[I64.v 6L] in
         let* sum_res = call init_array_then_sum Prototype.[] in
+        let* _zero = call edit_array_fundecl Prototype.[] in
         I64.add fact_res sum_res)
   in
   return main

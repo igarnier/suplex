@@ -6,6 +6,10 @@ type not_const = [ `not_const ]
 
 type unknown = [ `const | `not_const ]
 
+type 'a ptr = Ptr
+
+type 'a arr = Array
+
 module type Type_system_sig = sig
   type (!'a, 'a_typ, +'c) typed_term
 
@@ -27,8 +31,8 @@ module type Type_system_sig = sig
     | TUnit : unit typ
     | TBool : bool typ
     | TNum : 'a numerical -> 'a typ
-    | TPtr : 'a typ -> 'a ref typ
-    | TVec : int option * 'a typ -> 'a array typ
+    | TPtr : 'a typ -> 'a ptr typ
+    | TVec : int option * 'a typ -> 'a arr typ
     | TRecord : (_, _, 'u vec, 'u vec, 't) record -> 't typ
 
   and ('intro, 'elim, 't_acc, 't, 'u) record =
@@ -47,7 +51,7 @@ module type Type_system_sig = sig
 
   and ('a, 't) field = { name : string; ty : 'a typ }
 
-  and ('a, 'u) proj = { proj : 'c. ('u ref, 'c) m -> ('a ref, 'c) m }
+  and ('a, 'u) proj = { proj : 'c. ('u ptr, 'c) m -> ('a ptr, 'c) m }
 
   and (!'a, +'c) m = ('a, 'a typ, 'c) typed_term
 
@@ -71,9 +75,9 @@ module type Type_system_sig = sig
 
   val int64 : int64 typ
 
-  val ptr : 'a typ -> 'a ref typ
+  val ptr : 'a typ -> 'a ptr typ
 
-  val vec : ?static_size:int -> 'a typ -> 'a array typ
+  val vec : ?static_size:int -> 'a typ -> 'a arr typ
 
   val empty_rec : (('u, const) m, unit, unit vec, 't vec, 'u) record
 
@@ -116,8 +120,8 @@ struct
     | TUnit : unit typ
     | TBool : bool typ
     | TNum : 'a numerical -> 'a typ
-    | TPtr : 'a typ -> 'a ref typ
-    | TVec : int option * 'a typ -> 'a array typ
+    | TPtr : 'a typ -> 'a ptr typ
+    | TVec : int option * 'a typ -> 'a arr typ
     | TRecord : (_, _, 'u vec, 'u vec, 't) record -> 't typ
 
   and ('intro, 'elim, 't_acc, 't, 'u) record =
@@ -136,7 +140,7 @@ struct
 
   and ('a, 't) field = { name : string; ty : 'a typ }
 
-  and ('a, 'u) proj = { proj : 'c. ('u ref, 'c) m -> ('a ref, 'c) m }
+  and ('a, 'u) proj = { proj : 'c. ('u ptr, 'c) m -> ('a ptr, 'c) m }
 
   and (!'a, +'c) m = ('a, 'a typ, 'c) typed_term
 
@@ -280,8 +284,8 @@ module type Stack_frame = sig
   type (!'a, 'c) m
 
   type 'a stack_var =
-    | Single : 'a typ * ('a, const) m -> 'a ref stack_var
-    | Array : 'a typ * ('a, const) m * (int64, unknown) m -> 'a array stack_var
+    | Single : 'a typ * ('a, const) m -> 'a ptr stack_var
+    | Array : 'a typ * ('a, const) m * (int64, unknown) m -> 'a arr stack_var
 
   type (_, _) t =
     | Empty : ('b, 'b) t
@@ -291,10 +295,10 @@ module type Stack_frame = sig
 
   val ( @+ ) : 'a stack_var -> ('c, 'b) t -> (('a, not_const) m -> 'c, 'b) t
 
-  val single : 'a typ -> ('a, const) m -> 'a ref stack_var
+  val single : 'a typ -> ('a, const) m -> 'a ptr stack_var
 
   val array_i64 :
-    'a typ -> ('a, const) m -> (int64, unknown) m -> 'a array stack_var
+    'a typ -> ('a, const) m -> (int64, unknown) m -> 'a arr stack_var
 end
 
 module type Prototype = sig
@@ -355,7 +359,7 @@ module type S = sig
 
   module I64 : Numerical with type t = int64 and type v = int64
 
-  val array : ('a, const) m array -> ('a array, const) m
+  val array : ('a, const) m array -> ('a arr, const) m
 
   val struct_ :
     ('intro, _, 'a vec, 'a vec, 'u) Type_system.record ->
@@ -370,14 +374,14 @@ module type S = sig
   val ( let* ) :
     ('a, 'c) m -> (('a, 'c) m -> ('b, unknown) m) -> ('b, unknown) m
 
-  val store : ('a ref, not_const) m -> ('a, _) m -> (unit, unknown) m
+  val store : ('a ptr, not_const) m -> ('a, _) m -> (unit, unknown) m
 
-  val load : ('a ref, 'c) m -> ('a, 'c) m
+  val load : ('a ptr, 'c) m -> ('a, 'c) m
 
-  val get : ('a array, 'c) m -> (int64, _) m -> ('a ref, 'c) m
+  val get : ('a arr, 'c) m -> (int64, _) m -> ('a ptr, 'c) m
 
   val set :
-    ('a array, not_const) m -> (int64, _) m -> ('a, _) m -> (unit, unknown) m
+    ('a arr, not_const) m -> (int64, _) m -> ('a, _) m -> (unit, unknown) m
 
   val for_ :
     init:(int64, 'a) m ->
@@ -414,8 +418,8 @@ struct
   open E
 
   type 'a stack_var =
-    | Single : 'a typ * ('a, const) m -> 'a ref stack_var
-    | Array : 'a typ * ('a, const) m * (int64, unknown) m -> 'a array stack_var
+    | Single : 'a typ * ('a, const) m -> 'a ptr stack_var
+    | Array : 'a typ * ('a, const) m * (int64, unknown) m -> 'a arr stack_var
 
   type (_, _) t =
     | Empty : ('b, 'b) t
@@ -454,285 +458,285 @@ struct
     | ( :: ) : ('a, 'c) m * 'd args -> (('a, 'c) m * 'd) args
 end
 
-module OCaml_repr () : sig
-  type (!'a, _, 'c) expr = 'a
-
-  include
-    S with type ('a, 'typ, 'c) expr := ('a, 'typ, 'c) expr and type 'a k = 'a
-
-  module I32 : Numerical with type t = int32 and type v = int32
-
-  module F64 : Numerical with type t = float and type v = float
-end = struct
-  module Type_system : Type_system_sig with type ('a, 'b, 'c) typed_term = 'a =
-  Make_type_system (struct
-    type ('a, 'b, 'c) typed_term = 'a
-  end)
-
-  open Type_system
-
-  type !'a k = 'a
-
-  type (!'a, _, _) expr = 'a
-
-  type ('a, +'c) m = ('a, 'c) Type_system.m
-
-  module type Numerical =
-    Numerical with type 'a typ := 'a typ and type ('a, 'c) m := ('a, 'c) m
-
-  module Stack_frame = Stack_frame (struct
-    type nonrec !'a typ = 'a typ
-
-    type (!'a, 'c) m = 'a
-  end)
-
-  module Prototype = Prototype (struct
-    type nonrec !'a typ = 'a typ
-
-    type nonrec (!'a, 'c) m = 'a
-  end)
-
-  type !'a numerical +=
-    | Int32_num : int32 numerical
-    | Float64_num : float numerical
-    [@@ocaml.warning "-38"]
-
-  let () =
-    register_numerical
-      (function Ex_num Int32_num -> Some () | _ -> None)
-      (fun fmtr () -> Format.fprintf fmtr "int32")
-      `int ;
-    register_numerical
-      (function Ex_num Float64_num -> Some () | _ -> None)
-      (fun fmtr () -> Format.fprintf fmtr "float")
-      `fp
-
-  type ('a, 'ret) fundecl = 'a -> 'ret
-
-  let unit = ()
-
-  let seq (_m : (unit, _) m) (f : unit -> ('b, _) m) = f ()
-
-  let ( let* ) m f = f m
-
-  let bool b = b
-
-  let tt = bool true
-
-  let ff = bool false
-
-  let ( && ) : (bool, _) m -> (bool, _) m -> (bool, unknown) m =
-   fun x y -> x && y
-
-  let ( || ) : (bool, _) m -> (bool, _) m -> (bool, unknown) m =
-   fun x y -> x || y
-
-  module I64 : Numerical with type t = int64 and type v = int64 = struct
-    type t = int64
-
-    type v = int64
-
-    let t = Type_system.int64
-
-    let v i = i
-
-    let add = Int64.add
-
-    let sub = Int64.sub
-
-    let mul = Int64.mul
-
-    let div = Int64.div
-
-    let neg = Int64.neg
-
-    let lt = ( < )
-
-    let le = ( <= )
-
-    let eq = ( = )
-  end
-
-  module I32 : Numerical with type t = int32 and type v = int32 = struct
-    type t = int32
-
-    type v = int32
-
-    let t = Type_system.TNum Int32_num
-
-    let v i = i
-
-    let add = Int32.add
-
-    let sub = Int32.sub
-
-    let mul = Int32.mul
-
-    let div = Int32.div
-
-    let neg = Int32.neg
-
-    let lt = ( < )
-
-    let le = ( <= )
-
-    let eq = ( = )
-  end
-
-  module F64 : Numerical with type t = float and type v = float = struct
-    type t = float
-
-    type v = float
-
-    let t = Type_system.TNum Float64_num
-
-    let v f = f
-
-    let add = ( +. )
-
-    let sub = ( -. )
-
-    let mul = ( *. )
-
-    let div = ( /. )
-
-    let neg = ( ~-. )
-
-    let lt = ( < )
-
-    let le = ( <= )
-
-    let eq = ( = )
-  end
-
-  let store lhs rhs = lhs := rhs
-
-  let load ptr = !ptr
-
-  let get vec index =
-    (* TODO that's clearly not what we want... *)
-    ref vec.(Int64.to_int index)
-
-  let set vec index elt = vec.(Int64.to_int index) <- elt
-
-  let for_ ~init ~pred ~step body =
-    let i_ref = ref init in
-    while pred !i_ref do
-      body !i_ref ;
-      i_ref := step !i_ref
-    done
-
-  let cond e dispatch = dispatch e
-
-  let switch_i64 expr ~cases ~default =
-    let rec loop i =
-      if i = Array.length cases then default ()
-      else
-        let (v, code) = cases.(i) in
-        if v = expr then code () else loop (i + 1)
-    in
-    loop 0
-
-  let rec alloca : type a b. (a, b) Stack_frame.t -> a -> b =
-   fun frame k ->
-    match frame with
-    | Empty -> k
-    | Cons (Single (_typ, init), rest) ->
-        let expr = ref init in
-        alloca rest (k expr)
-    | Cons (Array (_typ, init, size), rest) ->
-        let expr = Array.make (Int64.to_int size) init in
-        alloca rest (k expr)
-
-  let fundecl ~name:_ ~signature:_ ~local ~body = alloca local body
-
-  let rec call : type s ret. (s, ret) fundecl -> s Prototype.args -> ret =
-   fun f args ->
-    match args with
-    | [] -> f ()
-    | expr :: args -> call (fun x -> f (expr, x)) args
-
-  let array arr = arr
-
-  let struct_ :
-      type intro res u.
-      (intro, _, res vec, res vec, u) record -> (res vec -> u) -> intro =
-   fun (record : (intro, _, res vec, res vec, u) record) conv ->
-    let rec loop :
-        type intro elim acc.
-        (intro, elim, acc vec, res vec, u) Type_system.record ->
-        (acc vec -> res vec) ->
-        intro =
-     fun (descr : (intro, elim, acc vec, res vec, u) Type_system.record) k ->
-      match descr with
-      | Record_empty -> conv (k Nil_vec)
-      | Record_field (_field, rest) ->
-          fun arg -> loop rest (fun x -> k (Cons_vec (arg, x)))
-      | Record_fix (_id, f) ->
-          (* Can only appear at top-level *)
-          loop (f (seal descr)) k
-    in
-    loop record (fun x -> x)
-
-  module Crazy_hack = struct
-    (* I just don't understand *)
-
-    type ('a, 'b) u = 'a
-
-    type ('a, 't) local_proj = { f : 'c. ('t ref, 'c) u -> ('a ref, 'c) u }
-
-    let local_to_proj : ('a, 'b) local_proj -> ('a, 'b) proj = Obj.magic
-  end
-
-  let projs :
-      type elim res u.
-      (_, elim, res vec, res vec, u) record -> (u -> res vec) -> elim =
-   fun (record : (_, elim, res vec, res vec, _) record) conv ->
-    let rec loop :
-        type intro elim acc.
-        (intro, elim, acc vec, res vec, u) Type_system.record ->
-        (res vec -> acc vec) ->
-        elim =
-     fun descr prj ->
-      match descr with
-      | Record_empty -> ()
-      | Record_field (_field, rest) ->
-          let proj : (_, u) proj =
-            (* Without this crazy hack OCaml can't generalize as it should. *)
-            Crazy_hack.local_to_proj
-              { f =
-                  (fun record ->
-                    match prj (conv !record) with Cons_vec (x, _) -> ref x)
-              }
-          in
-          let elims =
-            loop rest (fun vec -> match prj vec with Cons_vec (_, tl) -> tl)
-          in
-          ((elims, proj) : elim)
-      | Record_fix (_id, f) -> loop (f (seal descr)) prj
-    in
-    loop record (fun x -> x)
-end
-
-let _fact_example () =
-  let open OCaml_repr () in
-  let fact =
-    fundecl
-      ~name:"fact"
-      ~signature:Prototype.(Type_system.int64 @-> returning Type_system.int64)
-      ~local:Stack_frame.(single Type_system.int64 (I64.v 1L) @+ empty)
-      ~body:(fun acc (n, ()) ->
-        let* _ =
-          for_
-            ~init:(I64.v 1L)
-            ~pred:(fun i -> I64.le i n)
-            ~step:(fun i -> I64.add i (I64.v 1L))
-            (fun i -> store acc (I64.mul (load acc) i))
-        in
-        load acc)
-  in
-  let res = call fact Prototype.[I64.v 5L] in
-  Format.printf "fact 5 = %Ld@." res
+(* module OCaml_repr () : sig
+ *   type (!'a, _, 'c) expr = 'a
+ *
+ *   include
+ *     S with type ('a, 'typ, 'c) expr := ('a, 'typ, 'c) expr and type 'a k = 'a
+ *
+ *   module I32 : Numerical with type t = int32 and type v = int32
+ *
+ *   module F64 : Numerical with type t = float and type v = float
+ * end = struct
+ *   module Type_system : Type_system_sig with type ('a, 'b, 'c) typed_term = 'a =
+ *   Make_type_system (struct
+ *     type ('a, 'b, 'c) typed_term = 'a
+ *   end)
+ *
+ *   open Type_system
+ *
+ *   type !'a k = 'a
+ *
+ *   type (!'a, _, _) expr = 'a
+ *
+ *   type ('a, +'c) m = ('a, 'c) Type_system.m
+ *
+ *   module type Numerical =
+ *     Numerical with type 'a typ := 'a typ and type ('a, 'c) m := ('a, 'c) m
+ *
+ *   module Stack_frame = Stack_frame (struct
+ *     type nonrec !'a typ = 'a typ
+ *
+ *     type (!'a, 'c) m = 'a
+ *   end)
+ *
+ *   module Prototype = Prototype (struct
+ *     type nonrec !'a typ = 'a typ
+ *
+ *     type nonrec (!'a, 'c) m = 'a
+ *   end)
+ *
+ *   type !'a numerical +=
+ *     | Int32_num : int32 numerical
+ *     | Float64_num : float numerical
+ *     [@@ocaml.warning "-38"]
+ *
+ *   let () =
+ *     register_numerical
+ *       (function Ex_num Int32_num -> Some () | _ -> None)
+ *       (fun fmtr () -> Format.fprintf fmtr "int32")
+ *       `int ;
+ *     register_numerical
+ *       (function Ex_num Float64_num -> Some () | _ -> None)
+ *       (fun fmtr () -> Format.fprintf fmtr "float")
+ *       `fp
+ *
+ *   type ('a, 'ret) fundecl = 'a -> 'ret
+ *
+ *   let unit = ()
+ *
+ *   let seq (_m : (unit, _) m) (f : unit -> ('b, _) m) = f ()
+ *
+ *   let ( let* ) m f = f m
+ *
+ *   let bool b = b
+ *
+ *   let tt = bool true
+ *
+ *   let ff = bool false
+ *
+ *   let ( && ) : (bool, _) m -> (bool, _) m -> (bool, unknown) m =
+ *    fun x y -> x && y
+ *
+ *   let ( || ) : (bool, _) m -> (bool, _) m -> (bool, unknown) m =
+ *    fun x y -> x || y
+ *
+ *   module I64 : Numerical with type t = int64 and type v = int64 = struct
+ *     type t = int64
+ *
+ *     type v = int64
+ *
+ *     let t = Type_system.int64
+ *
+ *     let v i = i
+ *
+ *     let add = Int64.add
+ *
+ *     let sub = Int64.sub
+ *
+ *     let mul = Int64.mul
+ *
+ *     let div = Int64.div
+ *
+ *     let neg = Int64.neg
+ *
+ *     let lt = ( < )
+ *
+ *     let le = ( <= )
+ *
+ *     let eq = ( = )
+ *   end
+ *
+ *   module I32 : Numerical with type t = int32 and type v = int32 = struct
+ *     type t = int32
+ *
+ *     type v = int32
+ *
+ *     let t = Type_system.TNum Int32_num
+ *
+ *     let v i = i
+ *
+ *     let add = Int32.add
+ *
+ *     let sub = Int32.sub
+ *
+ *     let mul = Int32.mul
+ *
+ *     let div = Int32.div
+ *
+ *     let neg = Int32.neg
+ *
+ *     let lt = ( < )
+ *
+ *     let le = ( <= )
+ *
+ *     let eq = ( = )
+ *   end
+ *
+ *   module F64 : Numerical with type t = float and type v = float = struct
+ *     type t = float
+ *
+ *     type v = float
+ *
+ *     let t = Type_system.TNum Float64_num
+ *
+ *     let v f = f
+ *
+ *     let add = ( +. )
+ *
+ *     let sub = ( -. )
+ *
+ *     let mul = ( *. )
+ *
+ *     let div = ( /. )
+ *
+ *     let neg = ( ~-. )
+ *
+ *     let lt = ( < )
+ *
+ *     let le = ( <= )
+ *
+ *     let eq = ( = )
+ *   end
+ *
+ *   let store lhs rhs = lhs := rhs
+ *
+ *   let load ptr = !ptr
+ *
+ *   let get vec index =
+ *     (\* TODO that's clearly not what we want... *\)
+ *     ref vec.(Int64.to_int index)
+ *
+ *   let set vec index elt = vec.(Int64.to_int index) <- elt
+ *
+ *   let for_ ~init ~pred ~step body =
+ *     let i_ref = ref init in
+ *     while pred !i_ref do
+ *       body !i_ref ;
+ *       i_ref := step !i_ref
+ *     done
+ *
+ *   let cond e dispatch = dispatch e
+ *
+ *   let switch_i64 expr ~cases ~default =
+ *     let rec loop i =
+ *       if i = Array.length cases then default ()
+ *       else
+ *         let (v, code) = cases.(i) in
+ *         if v = expr then code () else loop (i + 1)
+ *     in
+ *     loop 0
+ *
+ *   let rec alloca : type a b. (a, b) Stack_frame.t -> a -> b =
+ *    fun frame k ->
+ *     match frame with
+ *     | Empty -> k
+ *     | Cons (Single (_typ, init), rest) ->
+ *         let expr = ref init in
+ *         alloca rest (k expr)
+ *     | Cons (Array (_typ, init, size), rest) ->
+ *         let expr = Array.make (Int64.to_int size) init in
+ *         alloca rest (k expr)
+ *
+ *   let fundecl ~name:_ ~signature:_ ~local ~body = alloca local body
+ *
+ *   let rec call : type s ret. (s, ret) fundecl -> s Prototype.args -> ret =
+ *    fun f args ->
+ *     match args with
+ *     | [] -> f ()
+ *     | expr :: args -> call (fun x -> f (expr, x)) args
+ *
+ *   let array arr = arr
+ *
+ *   let struct_ :
+ *       type intro res u.
+ *       (intro, _, res vec, res vec, u) record -> (res vec -> u) -> intro =
+ *    fun (record : (intro, _, res vec, res vec, u) record) conv ->
+ *     let rec loop :
+ *         type intro elim acc.
+ *         (intro, elim, acc vec, res vec, u) Type_system.record ->
+ *         (acc vec -> res vec) ->
+ *         intro =
+ *      fun (descr : (intro, elim, acc vec, res vec, u) Type_system.record) k ->
+ *       match descr with
+ *       | Record_empty -> conv (k Nil_vec)
+ *       | Record_field (_field, rest) ->
+ *           fun arg -> loop rest (fun x -> k (Cons_vec (arg, x)))
+ *       | Record_fix (_id, f) ->
+ *           (\* Can only appear at top-level *\)
+ *           loop (f (seal descr)) k
+ *     in
+ *     loop record (fun x -> x)
+ *
+ *   module Crazy_hack = struct
+ *     (\* I just don't understand *\)
+ *
+ *     type ('a, 'b) u = 'a
+ *
+ *     type ('a, 't) local_proj = { f : 'c. ('t ref, 'c) u -> ('a ref, 'c) u }
+ *
+ *     let local_to_proj : ('a, 'b) local_proj -> ('a, 'b) proj = Obj.magic
+ *   end
+ *
+ *   let projs :
+ *       type elim res u.
+ *       (_, elim, res vec, res vec, u) record -> (u -> res vec) -> elim =
+ *    fun (record : (_, elim, res vec, res vec, _) record) conv ->
+ *     let rec loop :
+ *         type intro elim acc.
+ *         (intro, elim, acc vec, res vec, u) Type_system.record ->
+ *         (res vec -> acc vec) ->
+ *         elim =
+ *      fun descr prj ->
+ *       match descr with
+ *       | Record_empty -> ()
+ *       | Record_field (_field, rest) ->
+ *           let proj : (_, u) proj =
+ *             (\* Without this crazy hack OCaml can't generalize as it should. *\)
+ *             Crazy_hack.local_to_proj
+ *               { f =
+ *                   (fun record ->
+ *                     match prj (conv !record) with Cons_vec (x, _) -> ref x)
+ *               }
+ *           in
+ *           let elims =
+ *             loop rest (fun vec -> match prj vec with Cons_vec (_, tl) -> tl)
+ *           in
+ *           ((elims, proj) : elim)
+ *       | Record_fix (_id, f) -> loop (f (seal descr)) prj
+ *     in
+ *     loop record (fun x -> x)
+ * end
+ *
+ * let _fact_example () =
+ *   let open OCaml_repr () in
+ *   let fact =
+ *     fundecl
+ *       ~name:"fact"
+ *       ~signature:Prototype.(Type_system.int64 @-> returning Type_system.int64)
+ *       ~local:Stack_frame.(single Type_system.int64 (I64.v 1L) @+ empty)
+ *       ~body:(fun acc (n, ()) ->
+ *         let* _ =
+ *           for_
+ *             ~init:(I64.v 1L)
+ *             ~pred:(fun i -> I64.le i n)
+ *             ~step:(fun i -> I64.add i (I64.v 1L))
+ *             (fun i -> store acc (I64.mul (load acc) i))
+ *         in
+ *         load acc)
+ *   in
+ *   let res = call fact Prototype.[I64.v 5L] in
+ *   Format.printf "fact 5 = %Ld@." res *)
 
 module SMap = Map.Make (String)
 
@@ -756,7 +760,12 @@ module LLVM_repr () : sig
 
   include S with type 'a k = 'a LLVM_state.t
 
-  val null_ptr : 'a Type_system.typ -> ('a ref, const) Type_system.m
+  val register_external :
+    name:string ->
+    signature:('s, ('ret, unknown) Type_system.m) Prototype.t ->
+    ('s, ('ret, unknown) Type_system.m) fundecl k
+
+  val null_ptr : 'a Type_system.typ -> ('a ptr, const) Type_system.m
 
   module I32 : Numerical with type t = int32 and type v = int32
 
@@ -1066,7 +1075,7 @@ end = struct
     let llval = op (llval lhs) (llval rhs) name builder in
     llreturn llval bool
 
-  let null_ptr : 'a typ -> ('a ref, const) Type_system.m =
+  let null_ptr : 'a typ -> ('a ptr, const) Type_system.m =
     let open LLVM_state in
     fun ty ->
       let ptrty = Type_system.ptr ty in
@@ -1210,7 +1219,7 @@ end = struct
 
   let ( || ) lhs rhs = bool_binop Llvm.build_or "bool_or" lhs rhs
 
-  let array : ('a, const) m array -> ('a array, const) m =
+  let array : ('a, const) m array -> ('a arr, const) m =
    fun elements ->
     let open LLVM_state in
     if Array.length elements = 0 then
@@ -1281,7 +1290,7 @@ end = struct
       | Record_field (field, rest) ->
           let proj =
             { proj =
-                (fun (type c) (record : (u ref, c) m) ->
+                (fun (type c) (record : (u ptr, c) m) ->
                   let* builder in
                   let* record in
                   let elt_ptr =
@@ -1310,7 +1319,7 @@ end = struct
     let* m in
     f (return m)
 
-  let store (type a) (ptr : (a ref, not_const) m) (v : (a, _) m) :
+  let store (type a) (ptr : (a ptr, not_const) m) (v : (a, _) m) :
       (unit, unknown) m =
     let open LLVM_state in
     let* builder in
@@ -1319,7 +1328,7 @@ end = struct
     let _ = Llvm.build_store (llval v) (llval ptr) builder in
     unit_unknown
 
-  let load (type a) (ptr : (a ref, 'c) m) : (a, 'c) m =
+  let load (type a) (ptr : (a ptr, 'c) m) : (a, 'c) m =
     let open LLVM_state in
     let* builder in
     let* ptr in
@@ -1327,7 +1336,7 @@ end = struct
     | TPtr typ -> llreturn (Llvm.build_load (llval ptr) "load_tmp" builder) typ
     | TNum _ | TRecord _ -> assert false
 
-  let get (type a) (arr : (a array, 'c) m) (i : (int64, _) m) : (a ref, 'c) m =
+  let get (type a) (arr : (a arr, 'c) m) (i : (int64, _) m) : (a ptr, 'c) m =
     let open LLVM_state in
     let* builder in
     let* arr in
@@ -1347,7 +1356,7 @@ end = struct
         llreturn addr (ptr typ)
     | _ -> assert false
 
-  let set (type a) (arr : (a array, not_const) m) (i : (int64, _) m)
+  let set (type a) (arr : (a arr, not_const) m) (i : (int64, _) m)
       (e : (a, _) m) : (unit, unknown) m =
     let open LLVM_state in
     let* builder in
@@ -1526,7 +1535,7 @@ end = struct
   type init =
     | Scalar_init : { init : ('a, _) m; ptr : Llvm.llvalue } -> init
     | Array_init :
-        { init : ('a, _) m; arr : ('a array, not_const) m; size : Llvm.llvalue }
+        { init : ('a, _) m; arr : ('a arr, not_const) m; size : Llvm.llvalue }
         -> init
   (* | Array_init_static :
    *     { ty : 'a Type_system.typ;
@@ -1711,4 +1720,38 @@ end = struct
              return (llval expr :: acc))
     in
     loop f.signature args (return [])
+
+  let register_external :
+      name:string ->
+      signature:('s, ('ret, unknown) m) Prototype.t ->
+      ('s, ('ret, unknown) m) fundecl k =
+   fun ~name ~signature ->
+    let open LLVM_state in
+    let* typ = prototype signature [] in
+    let* lmodule in
+    let fptr = Llvm.declare_function name typ lmodule in
+    let fundecl = { name; signature; fptr } in
+    return fundecl
+end
+
+module Externals = struct
+  (* These are dummy external declaration so that the linker
+     really does statically link those guys in the library. *)
+  external print_int64 : unit -> unit = "print_int64"
+
+  external print_int32 : unit -> unit = "print_int32"
+
+  external print_int16 : unit -> unit = "print_int16"
+
+  external print_int8 : unit -> unit = "print_int8"
+
+  external print_unit : unit -> unit = "print_unit"
+
+  external print_bool : unit -> unit = "print_bool"
+
+  external print_float : unit -> unit = "print_float"
+
+  external print_double : unit -> unit = "print_double"
+
+  external instralloc : unit -> unit = "instralloc"
 end

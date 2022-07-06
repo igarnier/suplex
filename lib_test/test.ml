@@ -69,6 +69,14 @@ let (state, fundecl) =
   Repr.LLVM_state.run
   @@
   let open Repr.LLVM_state in
+  let* print_int64 =
+    Repr.register_external
+      ~name:"print_int64"
+      ~signature:
+        Repr.Prototype.(
+          Repr.Type_system.int64 @-> returning Repr.Type_system.unit)
+  in
+
   let* edit_array_fundecl =
     let open Repr in
     let open Type_system in
@@ -77,12 +85,28 @@ let (state, fundecl) =
       ~signature:Prototype.(returning I64.t)
       ~local:
         Stack_frame.(
-          array_i64 Record.t Record.zero (I64.v 2L :> (_, unknown) m) @+ empty)
+          array_i64
+            Record.t
+            (Record.make (I64.v 1L) (F64.v 2.))
+            (I64.v 2L :> (_, unknown) m)
+          @+ empty)
       ~body:(fun arr () ->
         let* elt1 = get arr (I64.v 0L) in
         let* elt2 = get arr (I64.v 1L) in
+        let* v1 = load @@ Record.f1.proj elt1 in
+        let* v2 = load @@ Record.f1.proj elt2 in
+        let* _ = call print_int64 Prototype.[v1] in
+        let* _ = call print_int64 Prototype.[v2] in
+
         let* _ = set arr (I64.v 1L) (load elt1) in
         let* _ = set arr (I64.v 0L) (load elt2) in
+        let* elt1 = get arr (I64.v 0L) in
+        let* elt2 = get arr (I64.v 1L) in
+        let* v1 = load @@ Record.f1.proj elt1 in
+        let* v2 = load @@ Record.f1.proj elt2 in
+        let* _ = call print_int64 Prototype.[v1] in
+        let* _ = call print_int64 Prototype.[v2] in
+
         I64.add (load @@ Record.f1.proj elt1) (load @@ Record.f1.proj elt2))
   in
 

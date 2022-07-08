@@ -93,8 +93,8 @@ let (state, fundecl) =
       ~body:(fun arr () ->
         let* elt1 = get arr (I64.v 0L) in
         let* elt2 = get arr (I64.v 1L) in
-        let* v1 = load @@ Record.f1.proj elt1 in
-        let* v2 = load @@ Record.f1.proj elt2 in
+        let* v1 = load @@ Record.f1.get elt1 in
+        let* v2 = load @@ Record.f1.get elt2 in
         let* _ = call print_int64 Prototype.[v1] in
         let* _ = call print_int64 Prototype.[v2] in
 
@@ -102,12 +102,12 @@ let (state, fundecl) =
         let* _ = set arr (I64.v 0L) (load elt2) in
         let* elt1 = get arr (I64.v 0L) in
         let* elt2 = get arr (I64.v 1L) in
-        let* v1 = load @@ Record.f1.proj elt1 in
-        let* v2 = load @@ Record.f1.proj elt2 in
+        let* v1 = load @@ Record.f1.get elt1 in
+        let* v2 = load @@ Record.f1.get elt2 in
         let* _ = call print_int64 Prototype.[v1] in
         let* _ = call print_int64 Prototype.[v2] in
 
-        I64.add (load @@ Record.f1.proj elt1) (load @@ Record.f1.proj elt2))
+        I64.add (load @@ Record.f1.get elt1) (load @@ Record.f1.get elt2))
   in
 
   let* fact =
@@ -157,8 +157,8 @@ let (state, fundecl) =
             ~step:(fun i -> I64.add i (I64.v 1L))
             (fun i -> store acc (I64.add (load (get arr i)) (load acc)))
         in
-        let* _ = store (Record.f1.proj strct) (I64.v 66L) in
-        let* x1 = load (Record.f1.proj strct) in
+        let* _ = Record.f1.set strct (I64.v 66L) in
+        let* x1 = load (Record.f1.get strct) in
         I64.add (load acc) x1)
   in
 

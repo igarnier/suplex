@@ -51,7 +51,10 @@ module type Type_system_sig = sig
 
   and ('a, 't) field = { name : string; ty : 'a typ }
 
-  and ('a, 'u) proj = { proj : 'c. ('u ptr, 'c) m -> ('a ptr, 'c) m }
+  and ('a, 'u) proj =
+    { get : 'c. ('u ptr, 'c) m -> ('a ptr, 'c) m;
+      set : 'c. ('u ptr, not_const) m -> ('a, 'c) m -> (unit, unknown) m
+    }
 
   and (!'a, +'c) m = ('a, 'a typ, 'c) typed_term
 
@@ -140,7 +143,10 @@ struct
 
   and ('a, 't) field = { name : string; ty : 'a typ }
 
-  and ('a, 'u) proj = { proj : 'c. ('u ptr, 'c) m -> ('a ptr, 'c) m }
+  and ('a, 'u) proj =
+    { get : 'c. ('u ptr, 'c) m -> ('a ptr, 'c) m;
+      set : 'c. ('u ptr, not_const) m -> ('a, 'c) m -> (unit, unknown) m
+    }
 
   and (!'a, +'c) m = ('a, 'a typ, 'c) typed_term
 
@@ -1289,18 +1295,32 @@ end = struct
       | Record_empty -> (() : elim)
       | Record_field (field, rest) ->
           let proj =
-            { proj =
+            { get =
                 (fun (type c) (record : (u ptr, c) m) ->
                   let* builder in
                   let* record in
-                  let elt_ptr =
+                  let field_addr =
                     Llvm.build_struct_gep
                       (llval record)
                       index
                       ("fieldaddr_" ^ string_of_int index)
                       builder
                   in
-                  llreturn elt_ptr (Type_system.ptr field.ty))
+                  llreturn field_addr (Type_system.ptr field.ty));
+              set =
+                (fun (type c) (record : (u ptr, not_const) m) (elt : (_, c) m) ->
+                  let* builder in
+                  let* record in
+                  let* elt in
+                  let field_addr =
+                    Llvm.build_struct_gep
+                      (llval record)
+                      index
+                      ("fieldaddr_" ^ string_of_int index)
+                      builder
+                  in
+                  let _ = Llvm.build_store (llval elt) field_addr builder in
+                  unit_unknown)
             }
           in
           let elims = loop rest (index + 1) in

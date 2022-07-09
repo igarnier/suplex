@@ -1,10 +1,18 @@
 type _ vec = Nil_vec : unit vec | Cons_vec : 'a * 'b vec -> ('a * 'b) vec
 
+(*
+const = ro, valid as initializers
+rw = rw (invalid as initializer)
+unknown = ro but invalid as initializers
+*)
+
+(** [`const] values correpsond to values that can serve as initializers. *)
 type const = [ `const ]
 
-type not_const = [ `not_const ]
+(** All values that can be written to must be [`rw]. *)
+type rw = [ `rw ]
 
-type unknown = [ `const | `not_const ]
+type unknown = [ `const | `rw ]
 
 type 'a ptr = Ptr
 
@@ -53,7 +61,8 @@ module type Type_system_sig = sig
 
   and ('a, 'u) proj =
     { get : 'c. ('u ptr, 'c) m -> ('a ptr, 'c) m;
-      set : 'c. ('u ptr, not_const) m -> ('a, 'c) m -> (unit, unknown) m
+      (* TODO: get: unknown -> unknown, rw -> rw, const forbidden *)
+      set : 'c. ('u ptr, rw) m -> ('a, 'c) m -> (unit, unknown) m
     }
 
   and (!'a, +'c) m = ('a, 'a typ, 'c) typed_term
@@ -145,7 +154,7 @@ struct
 
   and ('a, 'u) proj =
     { get : 'c. ('u ptr, 'c) m -> ('a ptr, 'c) m;
-      set : 'c. ('u ptr, not_const) m -> ('a, 'c) m -> (unit, unknown) m
+      set : 'c. ('u ptr, rw) m -> ('a, 'c) m -> (unit, unknown) m
     }
 
   and (!'a, +'c) m = ('a, 'a typ, 'c) typed_term
@@ -282,6 +291,10 @@ module type Numerical = sig
   val le : (t, _) m -> (t, _) m -> (bool, unknown) m
 
   val eq : (t, _) m -> (t, _) m -> (bool, unknown) m
+
+  val zero : (t, const) m
+
+  val one : (t, const) m
 end
 
 module type Stack_frame = sig
@@ -295,11 +308,11 @@ module type Stack_frame = sig
 
   type (_, _) t =
     | Empty : ('b, 'b) t
-    | Cons : 'a stack_var * ('c, 'b) t -> (('a, not_const) m -> 'c, 'b) t
+    | Cons : 'a stack_var * ('c, 'b) t -> (('a, rw) m -> 'c, 'b) t
 
   val empty : ('b, 'b) t
 
-  val ( @+ ) : 'a stack_var -> ('c, 'b) t -> (('a, not_const) m -> 'c, 'b) t
+  val ( @+ ) : 'a stack_var -> ('c, 'b) t -> (('a, rw) m -> 'c, 'b) t
 
   val single : 'a typ -> ('a, const) m -> 'a ptr stack_var
 
@@ -323,6 +336,7 @@ module type Prototype = sig
   val ( @-> ) :
     'a typ ->
     ('b, ('ret, unknown) m) t ->
+    (* TODO: we want functions arguments to be restricted to rw or unknown *)
     (('a, 'c) m * 'b, ('ret, unknown) m) t
 
   type _ args =
@@ -380,20 +394,21 @@ module type S = sig
   val ( let* ) :
     ('a, 'c) m -> (('a, 'c) m -> ('b, unknown) m) -> ('b, unknown) m
 
-  val store : ('a ptr, not_const) m -> ('a, _) m -> (unit, unknown) m
+  val store : ('a ptr, rw) m -> ('a, _) m -> (unit, unknown) m
 
+  (* TODO: load: unknown -> unknown, rw -> rw, const forbidden *)
   val load : ('a ptr, 'c) m -> ('a, 'c) m
 
-  val get : ('a arr, 'c) m -> (int64, _) m -> ('a ptr, 'c) m
+  val set : ('a arr, rw) m -> (int64, _) m -> ('a, _) m -> (unit, unknown) m
 
-  val set :
-    ('a arr, not_const) m -> (int64, _) m -> ('a, _) m -> (unit, unknown) m
+  (* TODO: load: unknown -> unknown, rw -> rw, const forbidden *)
+  val get : ('a arr, 'c) m -> (int64, _) m -> ('a ptr, 'c) m
 
   val for_ :
     init:(int64, 'a) m ->
-    pred:((int64, 'b) m -> (bool, 'c) m) ->
-    step:((int64, 'b) m -> (int64, 'd) m) ->
-    ((int64, 'b) m -> (unit, 'e) m) ->
+    pred:((int64, unknown) m -> (bool, 'c) m) ->
+    step:((int64, unknown) m -> (int64, 'd) m) ->
+    ((int64, unknown) m -> (unit, 'e) m) ->
     (unit, unknown) m
 
   val cond : (bool, _) m -> (bool -> ('a, _) m) -> ('a, unknown) m
@@ -429,7 +444,7 @@ struct
 
   type (_, _) t =
     | Empty : ('b, 'b) t
-    | Cons : 'a stack_var * ('c, 'b) t -> (('a, not_const) m -> 'c, 'b) t
+    | Cons : 'a stack_var * ('c, 'b) t -> (('a, rw) m -> 'c, 'b) t
 
   let empty = Empty
 
@@ -1103,6 +1118,10 @@ end = struct
         (Llvm.const_int (LLVM_type.int64_t context) (Int64.to_int i))
         Type_system.int64
 
+    let zero = v 0L
+
+    let one = v 1L
+
     let add : (int64, _) m -> (int64, _) m -> (int64, unknown) m =
      fun lhs rhs -> binop Llvm.build_add "int64_add" lhs rhs
 
@@ -1145,6 +1164,10 @@ end = struct
         (Llvm.const_int (LLVM_type.int32_t context) (Int32.to_int i))
         Type_system.int32
 
+    let zero = v 0l
+
+    let one = v 1l
+
     let add : (int32, _) m -> (int32, _) m -> (int32, unknown) m =
      fun lhs rhs -> binop Llvm.build_add "int32_add" lhs rhs
 
@@ -1186,6 +1209,10 @@ end = struct
       llreturn
         (Llvm.const_float (LLVM_type.float64_t context) f)
         Type_system.float64
+
+    let zero = v 0.0
+
+    let one = v 1.0
 
     let add : (float, _) m -> (float, _) m -> (float, unknown) m =
      fun lhs rhs -> binop Llvm.build_fadd "float_add" lhs rhs
@@ -1308,7 +1335,7 @@ end = struct
                   in
                   llreturn field_addr (Type_system.ptr field.ty));
               set =
-                (fun (type c) (record : (u ptr, not_const) m) (elt : (_, c) m) ->
+                (fun (type c) (record : (u ptr, rw) m) (elt : (_, c) m) ->
                   let* builder in
                   let* record in
                   let* elt in
@@ -1339,8 +1366,7 @@ end = struct
     let* m in
     f (return m)
 
-  let store (type a) (ptr : (a ptr, not_const) m) (v : (a, _) m) :
-      (unit, unknown) m =
+  let store (type a) (ptr : (a ptr, rw) m) (v : (a, _) m) : (unit, unknown) m =
     let open LLVM_state in
     let* builder in
     let* ptr in
@@ -1376,8 +1402,8 @@ end = struct
         llreturn addr (ptr typ)
     | _ -> assert false
 
-  let set (type a) (arr : (a arr, not_const) m) (i : (int64, _) m)
-      (e : (a, _) m) : (unit, unknown) m =
+  let set (type a) (arr : (a arr, rw) m) (i : (int64, _) m) (e : (a, _) m) :
+      (unit, unknown) m =
     let open LLVM_state in
     let* builder in
     let* arr in
@@ -1555,7 +1581,7 @@ end = struct
   type init =
     | Scalar_init : { init : ('a, _) m; ptr : Llvm.llvalue } -> init
     | Array_init :
-        { init : ('a, _) m; arr : ('a arr, not_const) m; size : Llvm.llvalue }
+        { init : ('a, _) m; arr : ('a arr, rw) m; size : Llvm.llvalue }
         -> init
   (* | Array_init_static :
    *     { ty : 'a Type_system.typ;

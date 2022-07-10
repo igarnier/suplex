@@ -55,7 +55,9 @@ module Record = struct
     struct_
       record
       (fun vec ->
-        match vec with Cons_vec (f2, Cons_vec (f1, Nil_vec)) -> { f1; f2 })
+        match vec with
+        | Cons_vec ((f2 : float), Cons_vec ((f1 : int64), Nil_vec)) ->
+            { f1; f2 })
       f
       i
 
@@ -65,11 +67,11 @@ module Record = struct
     projs record (fun { f1; f2 } -> Cons_vec (f2, Cons_vec (f1, Nil_vec)))
 end
 
-let (state, fundecl) =
+let (state, _fundecl) =
   Repr.LLVM_state.run
   @@
   let open Repr.LLVM_state in
-  let* print_int64 =
+  let* _print_int64 =
     Repr.register_external
       ~name:"print_int64"
       ~signature:
@@ -87,26 +89,28 @@ let (state, fundecl) =
         Stack_frame.(
           array_i64
             Record.t
-            (Record.make (I64.v 1L) (F64.v 2.))
+            (* (Record.make (I64.v 1L) (F64.v 2.)) *)
             (I64.v 2L :> (_, unknown) m)
           @+ empty)
       ~body:(fun arr () ->
         let* elt1 = get arr (I64.v 0L) in
         let* elt2 = get arr (I64.v 1L) in
-        let* v1 = load @@ Record.f1.get elt1 in
-        let* v2 = load @@ Record.f1.get elt2 in
-        let* _ = call print_int64 Prototype.[v1] in
-        let* _ = call print_int64 Prototype.[v2] in
 
+        (* let* v1 = load @@ Record.f1.get elt1 in
+         * let* v2 = load @@ Record.f1.get elt2 in *)
+
+        (* let* _ = call print_int64 Prototype.[v1] in
+         * let* _ = call print_int64 Prototype.[v2] in *)
         let* _ = set arr (I64.v 1L) (load elt1) in
         let* _ = set arr (I64.v 0L) (load elt2) in
         let* elt1 = get arr (I64.v 0L) in
         let* elt2 = get arr (I64.v 1L) in
-        let* v1 = load @@ Record.f1.get elt1 in
-        let* v2 = load @@ Record.f1.get elt2 in
-        let* _ = call print_int64 Prototype.[v1] in
-        let* _ = call print_int64 Prototype.[v2] in
 
+        (* let* v1 = load @@ Record.f1.get elt1 in
+         * let* v2 = load @@ Record.f1.get elt2 in *)
+
+        (* let* _ = call print_int64 Prototype.[v1] in
+         * let* _ = call print_int64 Prototype.[v2] in *)
         I64.add (load @@ Record.f1.get elt1) (load @@ Record.f1.get elt2))
   in
 
@@ -115,8 +119,9 @@ let (state, fundecl) =
     fundecl
       ~name:"fact"
       ~signature:Prototype.(Type_system.int64 @-> returning Type_system.int64)
-      ~local:Stack_frame.(single Type_system.int64 (I64.v 1L) @+ empty)
-      ~body:(fun acc (* _strct *) (n, ()) ->
+      ~local:Stack_frame.(single Type_system.int64 @+ empty)
+      ~body:(fun acc (n, ()) ->
+        let* _ = store acc I64.one in
         let* n = cond (I64.eq n n) (fun _ -> n) in
         let* n =
           switch_i64
@@ -137,6 +142,15 @@ let (state, fundecl) =
         (load acc :> (_, unknown) Repr.Type_system.m))
   in
 
+  let init_array_macro a length =
+    let open Repr in
+    for_
+      ~init:(I64.v 0L)
+      ~pred:(fun i -> I64.lt i length)
+      ~step:(fun i -> I64.add i (I64.v 1L))
+      (fun i -> store (get a i) I64.zero)
+  in
+
   let* init_array_then_sum =
     let open Repr in
     let open Type_system in
@@ -145,11 +159,14 @@ let (state, fundecl) =
       ~signature:Prototype.(returning I64.t)
       ~local:
         Stack_frame.(
-          array_i64 int64 (I64.v 1L) (I64.v 10L :> (int64, unknown) m)
-          @+ single int64 (I64.v 0L)
-          @+ single Record.t (Record.make (I64.v 13L) (F64.v 12.))
+          array_i64 int64 (* (I64.v 1L) *) (I64.v 10L :> (int64, unknown) m)
+          @+ single int64 (* (I64.v 0L) *)
+          @+ single Record.t (* (Record.make (I64.v 13L) (F64.v 12.)) *)
           @+ empty)
       ~body:(fun arr acc strct () ->
+        let* _ = init_array_macro arr (I64.v 10L) in
+        let* _ = Record.f1.set strct (I64.v 13L) in
+        let* _ = Record.f2.set strct (F64.v 12.) in
         let* _ =
           for_
             ~init:(I64.v 0L)
@@ -176,18 +193,300 @@ let (state, fundecl) =
   in
   return main
 
-let res =
+let run_llvm_program_generic ?(verbose = false) fn_typ main =
+  let (state, fundecl) = Repr.LLVM_state.run main in
   let engine = Llvm_executionengine.create state.llvm_module in
-
   let fpm = Llvm.PassManager.create () in
-  Llvm.dump_module state.llvm_module ;
+  if verbose then Llvm.dump_module state.llvm_module ;
   let _ = Llvm.PassManager.run_module state.llvm_module fpm in
-
-  let fn_typ : (unit -> int64) Ctypes.fn =
-    Ctypes.(void @-> returning int64_t)
-  in
   let fn_ptr_typ = Foreign.funptr fn_typ in
-  let f = Llvm_executionengine.get_function_address "main" fn_ptr_typ engine in
-  let res = f () in
-  let () = Format.printf "executing = %Ld@." res in
-  Llvm_executionengine.dispose engine
+  let f =
+    Llvm_executionengine.get_function_address
+      (Repr.fundecl_name fundecl)
+      fn_ptr_typ
+      engine
+  in
+  (engine, f)
+
+let run_llvm_program1 (type a b) ?verbose (fn_typ : (a -> b) Ctypes.fn)
+    (main :
+      ( (a, _) Repr.Type_system.m * unit,
+        (b, unknown) Repr.Type_system.m )
+      Repr.fundecl
+      Repr.k) inputs : b list =
+  let (engine, f) = run_llvm_program_generic ?verbose fn_typ main in
+  let res = List.map f inputs in
+  Llvm_executionengine.dispose engine ;
+  res
+
+let run_llvm_program1_unsafe ?verbose fn_typ main inputs =
+  let (engine, f) = run_llvm_program_generic ?verbose fn_typ main in
+  let res = List.map f inputs in
+  Llvm_executionengine.dispose engine ;
+  res
+
+let run_llvm_program2 (type a b c) ?verbose (fn_typ : (a -> b -> c) Ctypes.fn)
+    (main :
+      ( (a, _) Repr.Type_system.m * ((b, _) Repr.Type_system.m * unit),
+        (c, unknown) Repr.Type_system.m )
+      Repr.fundecl
+      Repr.k) inputs : c list =
+  let (engine, f) = run_llvm_program_generic ?verbose fn_typ main in
+  let res = List.map (fun (x, y) -> f x y) inputs in
+  Llvm_executionengine.dispose engine ;
+  res
+
+let test_fact () =
+  let rec fact_oracle n =
+    if n = 0L then 1L else Int64.mul n (fact_oracle (Int64.pred n))
+  in
+  Alcotest.(check (list int64))
+    "iterative_factorial"
+    (List.map fact_oracle [1L; 2L; 3L; 4L; 5L])
+  @@ run_llvm_program1
+       ~verbose:true
+       Ctypes.(int64_t @-> returning int64_t)
+       (let open Repr in
+       fundecl
+         ~name:"iterative_fact"
+         ~signature:
+           Prototype.(Type_system.int64 @-> returning Type_system.int64)
+         ~local:Stack_frame.(single Type_system.int64 @+ empty)
+         ~body:(fun acc (n, ()) ->
+           let* _ = store acc I64.one in
+           let* n = cond (I64.eq n n) (fun _ -> n) in
+           let* _ =
+             for_
+               ~init:(I64.v 1L)
+               ~pred:(fun i -> I64.le i n)
+               ~step:(fun i -> I64.add i (I64.v 1L))
+               (fun i -> store acc (I64.mul (load acc) i))
+           in
+           (load acc :> (_, unknown) Repr.Type_system.m)))
+       [1L; 2L; 3L; 4L; 5L]
+
+let test_nested_switch () =
+  Alcotest.(check (list int64)) "nested_switch" [0L; 0L; 42L; 1789L; -1L]
+  @@ run_llvm_program1
+       Ctypes.(int64_t @-> returning int64_t)
+       (let open Repr in
+       fundecl
+         ~name:"nested_switch"
+         ~signature:
+           Prototype.(Type_system.int64 @-> returning Type_system.int64)
+         ~local:Stack_frame.(single Type_system.int64 @+ empty)
+         ~body:(fun local (x, ()) ->
+           let* _ = store local (I64.div x (I64.v 2L)) in
+           switch_i64
+             (load local)
+             ~cases:
+               [| (0L, fun () -> (I64.zero :> (_, unknown) Type_system.m));
+                  ( 5L,
+                    fun () ->
+                      switch_i64
+                        x
+                        ~cases:
+                          [| ( 11L,
+                               fun () ->
+                                 (I64.v 42L :> (_, unknown) Type_system.m) )
+                          |]
+                        ~default:(fun () ->
+                          (I64.v 1789L :> (_, unknown) Type_system.m)) )
+               |]
+             ~default:(fun () -> (I64.v (-1L) :> (_, unknown) Type_system.m))))
+       [0L; 1L; 11L; 10L; 12L]
+
+let test_nested_cond () =
+  Alcotest.(check (list int64)) "nested_cond" [0L; 0L; 42L; 1789L; 42L; 1789L]
+  @@ run_llvm_program1
+       Ctypes.(int64_t @-> returning int64_t)
+       (let open Repr in
+       fundecl
+         ~name:"nested_switch"
+         ~signature:
+           Prototype.(Type_system.int64 @-> returning Type_system.int64)
+         ~local:Stack_frame.(single Type_system.int64 @+ empty)
+         ~body:(fun local (x, ()) ->
+           let* _ = store local (I64.div x (I64.v 2L)) in
+           let* v = load local in
+           cond (I64.eq v I64.zero) (function
+               | true -> (I64.zero :> (_, unknown) Type_system.m)
+               | false ->
+                   cond
+                     (I64.eq v (I64.v 5L))
+                     (function
+                       | true ->
+                           cond
+                             (I64.eq x (I64.v 11L))
+                             (function
+                               | true ->
+                                   (I64.v 42L :> (_, unknown) Type_system.m)
+                               | false ->
+                                   (I64.v 1789L :> (_, unknown) Type_system.m))
+                       | false ->
+                           cond
+                             (I64.eq x (I64.v 12L))
+                             (function
+                               | true ->
+                                   (I64.v 42L :> (_, unknown) Type_system.m)
+                               | false ->
+                                   (I64.v 1789L :> (_, unknown) Type_system.m))))))
+       [0L; 1L; 11L; 10L; 12L; 13L]
+
+type int64_pair = { x : int64; y : int64 }
+
+(* A struct containing a pair of int64. *)
+let (ctypes_int64_pair, x_field, y_field) =
+  let open Ctypes in
+  let p : int64_pair structure typ = structure "int64_pair" in
+  let x = field p "x" int64_t in
+  let y = field p "y" int64_t in
+  seal p ;
+  (p, x, y)
+
+let make_ctypes_int64_pair x y =
+  let v = Ctypes.make ctypes_int64_pair in
+  Ctypes.setf v x_field x ;
+  Ctypes.setf v y_field y ;
+  Ctypes.allocate ctypes_int64_pair v
+
+module Int64_pair = struct
+  open Repr
+  open Type_system
+
+  let record = empty_rec |+ field "x" int64 |+ field "y" int64
+
+  let t = seal record
+
+  let make x y =
+    struct_
+      record
+      (fun vec ->
+        match vec with Cons_vec (y, Cons_vec (x, Nil_vec)) -> { x; y })
+      y
+      x
+
+  let zero = make (I64.v 0L) (I64.v 0L)
+
+  let (((), f1), f2) =
+    projs record (fun { x; y } -> Cons_vec (y, Cons_vec (x, Nil_vec)))
+end
+
+let test_struct_alloca () =
+  Alcotest.(check (list int64)) "struct_alloca" [2L; 3L; 4L; 5L; 6L]
+  @@ run_llvm_program2
+       Ctypes.(int64_t @-> int64_t @-> returning int64_t)
+       (let open Repr in
+       fundecl
+         ~name:"struct_alloca"
+         ~signature:
+           Prototype.(
+             Type_system.int64 @-> Type_system.int64
+             @-> returning Type_system.int64)
+         ~local:Stack_frame.(single Int64_pair.t @+ empty)
+         ~body:(fun acc (x, (y, ())) ->
+           let* _ = Int64_pair.f1.set acc x in
+           let* _ = Int64_pair.f2.set acc y in
+           I64.add
+             (load @@ Int64_pair.f1.get acc)
+             (load @@ Int64_pair.f2.get acc)))
+       [(1L, 1L); (2L, 1L); (3L, 1L); (4L, 1L); (5L, 1L)]
+
+let test_struct_arg () =
+  Alcotest.(check (list int64)) "struct_arg" [2L; 3L; 4L; 5L; 6L]
+  @@ run_llvm_program1_unsafe
+       Ctypes.(ptr ctypes_int64_pair @-> returning int64_t)
+       (let open Repr in
+       fundecl
+         ~name:"struct_arg"
+         ~signature:
+           Prototype.(
+             Type_system.ptr Int64_pair.t @-> returning Type_system.int64)
+         ~local:Stack_frame.empty
+         ~body:(fun (x, ()) ->
+           I64.add (load @@ Int64_pair.f1.get x) (load @@ Int64_pair.f2.get x)))
+       (List.map
+          (fun (x, y) -> make_ctypes_int64_pair x y)
+          [(1L, 1L); (2L, 1L); (3L, 1L); (4L, 1L); (5L, 1L)])
+
+let test_struct_const_init () =
+  Alcotest.(check (list int64)) "struct_const_init" [85L; 85L; 85L; 85L; 85L]
+  @@ run_llvm_program1_unsafe
+       ~verbose:true
+       Ctypes.(ptr ctypes_int64_pair @-> returning int64_t)
+       (let open Repr in
+       fundecl
+         ~name:"struct_arg"
+         ~signature:
+           Prototype.(
+             Type_system.ptr Int64_pair.t @-> returning Type_system.int64)
+         ~local:Stack_frame.empty
+         ~body:(fun (x, ()) ->
+           let* _ = store x (Int64_pair.make (I64.v 42L) (I64.v 43L)) in
+           I64.add (load @@ Int64_pair.f1.get x) (load @@ Int64_pair.f2.get x)))
+       (List.map
+          (fun (x, y) -> make_ctypes_int64_pair x y)
+          [(1L, 1L); (2L, 1L); (3L, 1L); (4L, 1L); (5L, 1L)])
+
+let array_to_ctypes (a : int64 array) =
+  let open Ctypes in
+  let arr = allocate_n int64_t ~count:(Array.length a) in
+  let rec loop ptr n =
+    if n = Array.length a then ()
+    else
+      let () = ptr <-@ a.(n) in
+      loop (ptr +@ 1) (n + 1)
+  in
+  loop arr 0 ;
+  arr
+
+let test_array_arg () =
+  Alcotest.(check (list int64)) "array_arg" [5L; 10L]
+  @@ run_llvm_program1_unsafe
+       Ctypes.(ptr int64_t @-> returning int64_t)
+       (let open Repr in
+       fundecl
+         ~name:"array_arg"
+         ~signature:
+           Prototype.(Type_system.(vec int64) @-> returning Type_system.int64)
+         ~local:Stack_frame.(single Type_system.int64 @+ empty)
+         ~body:(fun acc (x, ()) ->
+           let* _ = store acc I64.zero in
+           let* _ =
+             for_
+               ~init:(I64.v 0L)
+               ~pred:(fun i -> I64.le i (I64.v 4L))
+               ~step:(fun i -> I64.add i (I64.v 1L))
+               (fun i -> store acc (I64.add (load acc) (load @@ get x i)))
+           in
+           (load acc :> (_, unknown) Type_system.m)))
+       [ array_to_ctypes [| 1L; 1L; 1L; 1L; 1L |];
+         array_to_ctypes (Array.init 5 Int64.of_int) ]
+
+let wrong_array_get () =
+  Alcotest.(check (list unit)) "struct_arg" [()]
+  @@ run_llvm_program1_unsafe
+       Ctypes.(void @-> returning void)
+       (let open Repr in
+       fundecl
+         ~name:"struct_arg"
+         ~signature:Prototype.(Type_system.unit @-> returning Type_system.unit)
+         ~local:Stack_frame.empty
+         ~body:(fun (_x, ()) ->
+           let* a = array [| unit; unit; unit |] in
+           (load @@ get a I64.zero :> (_, unknown) Type_system.m)))
+       [()]
+
+let () =
+  let open Alcotest in
+  run
+    "llvm-codegen"
+    [ ( "basic",
+        [ test_case "fact" `Quick test_fact;
+          test_case "nested_switch" `Quick test_nested_switch;
+          test_case "nested_cond" `Quick test_nested_cond;
+          test_case "struct_alloca" `Quick test_struct_alloca;
+          test_case "struct_arg" `Quick test_struct_arg;
+          test_case "struct_const_init" `Quick test_struct_const_init;
+          test_case "array_arg" `Quick test_array_arg;
+          test_case "wrong_array_get" `Quick wrong_array_get ] ) ]

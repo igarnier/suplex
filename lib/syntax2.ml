@@ -303,8 +303,8 @@ module type Stack_frame = sig
   type (!'a, 'c) m
 
   type 'a stack_var =
-    | Single : 'a typ * ('a, const) m -> 'a ptr stack_var
-    | Array : 'a typ * ('a, const) m * (int64, unknown) m -> 'a arr stack_var
+    | Single : 'a typ -> 'a ptr stack_var
+    | Array : 'a typ * (int64, unknown) m -> 'a arr stack_var
 
   type (_, _) t =
     | Empty : ('b, 'b) t
@@ -314,10 +314,9 @@ module type Stack_frame = sig
 
   val ( @+ ) : 'a stack_var -> ('c, 'b) t -> (('a, rw) m -> 'c, 'b) t
 
-  val single : 'a typ -> ('a, const) m -> 'a ptr stack_var
+  val single : 'a typ -> 'a ptr stack_var
 
-  val array_i64 :
-    'a typ -> ('a, const) m -> (int64, unknown) m -> 'a arr stack_var
+  val array_i64 : 'a typ -> (int64, unknown) m -> 'a arr stack_var
 end
 
 module type Prototype = sig
@@ -366,6 +365,8 @@ module type S = sig
     Prototype with type 'a typ := 'a typ and type ('a, 'c) m := ('a, 'c) m
 
   type ('a, 'b) fundecl
+
+  val fundecl_name : ('a, 'b) fundecl -> string
 
   val unit : (unit, const) m
 
@@ -439,8 +440,8 @@ struct
   open E
 
   type 'a stack_var =
-    | Single : 'a typ * ('a, const) m -> 'a ptr stack_var
-    | Array : 'a typ * ('a, const) m * (int64, unknown) m -> 'a arr stack_var
+    | Single : 'a typ -> 'a ptr stack_var
+    | Array : 'a typ * (int64, unknown) m -> 'a arr stack_var
 
   type (_, _) t =
     | Empty : ('b, 'b) t
@@ -450,9 +451,9 @@ struct
 
   let ( @+ ) v f = Cons (v, f)
 
-  let single ty init = Single (ty, init)
+  let single ty = Single ty
 
-  let array_i64 ty init len = Array (ty, init, len)
+  let array_i64 ty len = Array (ty, len)
 end
 
 module Prototype (E : sig
@@ -1038,6 +1039,26 @@ end = struct
       return res
   end
 
+  (* helpers *)
+  let create_block_after context builder block name =
+    let new_block = Llvm.insert_block context name block in
+    Llvm.move_block_after block new_block ;
+    Llvm.position_at_end new_block builder ;
+    new_block
+
+  let append_to_insertion_block context builder name =
+    let insertion_block = Llvm.insertion_block builder in
+    create_block_after context builder insertion_block name
+
+  let random_name () =
+    let long_name =
+      Digest.bytes (Marshal.to_bytes (Random.full_int max_int) [])
+      |> Digest.to_hex
+    in
+    String.sub long_name 0 8
+
+  let sf = Printf.sprintf
+
   module type Numerical =
     Numerical with type 'a typ := 'a typ and type ('a, 'c) m := ('a, 'c) m
 
@@ -1055,6 +1076,8 @@ end = struct
 
   type ('s, 'ret) fundecl =
     { name : string; signature : ('s, 'ret) Prototype.t; fptr : Llvm.llvalue }
+
+  let fundecl_name ({ name; _ } : (_, _) fundecl) = name
 
   let unit : (unit, const) m =
     let open LLVM_state in
@@ -1515,38 +1538,51 @@ end = struct
       ('a, _) m =
    fun expr ~cases ~default ->
     let open LLVM_state in
+    let switch_name = random_name () in
     let* builder in
     let* context in
 
     let current_block = Llvm.insertion_block builder in
-    let enclosing_func = Llvm.block_parent current_block in
 
+    (* let enclosing_func = Llvm.block_parent current_block in *)
     let non_default_cases = Array.length cases in
 
-    let switch_block =
-      Llvm.append_block context "switch_entry" enclosing_func
+    let switch_entry =
+      create_block_after
+        context
+        builder
+        current_block
+        (sf "switch_%s_entry" switch_name)
     in
-    (* Add unconditional jump from [current_block] inherited from context to [switch_block] *)
-    let _ = Llvm.build_br switch_block builder in
+
+    (* Add unconditional jump from [current_block] inherited from context to [switch_entry] *)
+    Llvm.position_at_end current_block builder ;
+    let _ = Llvm.build_br switch_entry builder in
 
     let cases =
+      Llvm.position_at_end switch_entry builder ;
       Array.mapi
         (fun i (const, case) ->
           let block =
-            Llvm.append_block
+            append_to_insertion_block
               context
-              (Printf.sprintf "switch_case_%Ld_%d" const i)
-              enclosing_func
+              builder
+              (sf "switch_%s_case_%Ld_%d" switch_name const i)
           in
           (const, case, block))
         cases
     in
     let default_block =
-      Llvm.append_block context "switch_case_default" enclosing_func
+      append_to_insertion_block
+        context
+        builder
+        (sf "switch_%s_case_default" switch_name)
     in
-    let phi_block = Llvm.append_block context "switch_phi" enclosing_func in
+    let phi_block =
+      append_to_insertion_block context builder (sf "switch_%s_phi" switch_name)
+    in
 
-    Llvm.position_at_end switch_block builder ;
+    Llvm.position_at_end switch_entry builder ;
     (* Generate code for expr and switch, set default branch *)
     let* expr in
     let switch =
@@ -1569,20 +1605,22 @@ end = struct
         Llvm.position_at_end block builder ;
         let* case = case () in
         let _ = Llvm.build_br phi_block builder in
-        loop (i + 1) ((llval case, block) :: acc)
+        loop (i + 1) ((llval case, Llvm.insertion_block builder) :: acc)
     in
 
     let* non_default_cases = loop 0 [] in
     let all_cases = (llval default, default_block) :: non_default_cases in
     Llvm.position_at_end phi_block builder ;
-    let result = Llvm.build_phi all_cases "switch_phi" builder in
+    let result =
+      Llvm.build_phi all_cases (sf "switch_%s_phi_node" switch_name) builder
+    in
     llreturn result (typeof default)
 
-  type init =
-    | Scalar_init : { init : ('a, _) m; ptr : Llvm.llvalue } -> init
-    | Array_init :
-        { init : ('a, _) m; arr : ('a arr, rw) m; size : Llvm.llvalue }
-        -> init
+  (* type init =
+   *   | Scalar_init : { init : ('a, _) m; ptr : Llvm.llvalue } -> init
+   *   | Array_init :
+   *       { init : ('a, _) m; arr : ('a arr, rw) m; size : Llvm.llvalue }
+   *       -> init *)
   (* | Array_init_static :
    *     { ty : 'a Type_system.typ;
    *       f : int -> 'a m;
@@ -1593,70 +1631,21 @@ end = struct
 
   let rec alloca :
       type a s ret.
-      (a, s -> (ret, unknown) m) Stack_frame.t ->
-      init list ->
-      a ->
-      s ->
-      (ret, unknown) m =
+      (a, s -> (ret, unknown) m) Stack_frame.t -> a -> s -> (ret, unknown) m =
     let open LLVM_state in
     fun (type a s ret)
         (frame : (a, s -> (ret, unknown) m) Stack_frame.t)
-        initializers
         (k : a)
         (s : s) ->
       match frame with
-      | Empty ->
-          let rec initialize init =
-            match init with
-            | [] -> k s
-            | Scalar_init { init; ptr } :: rest ->
-                let* builder in
-                let* init in
-                let store = Llvm.build_store (llval init) ptr builder in
-                Format.printf
-                  "init: %s with type %a@."
-                  (Llvm.string_of_llvalue (llval init))
-                  Type_system.pp_typ
-                  (typeof init) ;
-                Format.printf "store: %s@." (Llvm.string_of_llvalue store) ;
-                initialize rest
-            | Array_init { init; arr; size } :: rest ->
-                let size = llreturn size Type_system.int64 in
-                let* _ =
-                  for_
-                    ~init:(I64.v 0L)
-                    ~pred:(fun i -> I64.lt i size)
-                    ~step:(fun i -> I64.add i (I64.v 1L))
-                    (fun i -> set arr i init)
-                in
-                initialize rest
-            (* | Array_init_static { ty; f; arr; size } :: rest ->
-             *     let rec loop i acc =
-             *       if i = size then return (Array.of_list (List.rev acc))
-             *       else
-             *         let* elt = f i in
-             *         loop (i + 1) (llval elt :: acc)
-             *     in
-             *     let* builder in
-             *     let* arr in
-             *     let* elts = loop 0 [] in
-             *     let* ty = LLVM_type.of_type ty in
-             *     let init = Llvm.const_array ty elts in
-             *     let _ = Llvm.build_store init (llval arr) builder in
-             *     initialize rest *)
-          in
-          initialize initializers
-      | Cons (Single (typ, init), rest) ->
+      | Empty -> k s
+      | Cons (Single typ, rest) ->
           let* builder in
           let* lltyp = LLVM_type.of_type typ in
           let llalloca = Llvm.build_alloca lltyp "loc" builder in
           let expr = llreturn llalloca (ptr typ) in
-          alloca
-            rest
-            (Scalar_init { init; ptr = llalloca } :: initializers)
-            (k expr)
-            s
-      | Cons (Array (typ, init, size), rest) ->
+          alloca rest (k expr) s
+      | Cons (Array (typ, size), rest) ->
           let* builder in
           let* lltyp = LLVM_type.of_type typ in
           let* size in
@@ -1668,8 +1657,7 @@ end = struct
               builder
           in
           let arr = llreturn llalloca (vec typ) in
-          let init = Array_init { init; arr; size = llval size } in
-          alloca rest (init :: initializers) (k arr) s
+          alloca rest (k arr) s
   (* | Cons (Array_static (ty, f, static_size), rest) ->
    *     let* builder in
    *     let* lltyp = LLVM_type.of_type ty in
@@ -1733,7 +1721,7 @@ end = struct
     | Some args ->
         let bb = Llvm.append_block context "entry" fn in
         Llvm.position_at_end bb builder ;
-        let* res = alloca local [] body args in
+        let* res = alloca local body args in
         let _ = Llvm.build_ret (llval res) builder in
         let fundecl = { name; signature; fptr = fn } in
         if not (Llvm_analysis.verify_function fn) then (

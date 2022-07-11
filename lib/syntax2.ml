@@ -60,9 +60,9 @@ module type Type_system_sig = sig
   and ('a, 't) field = { name : string; ty : 'a typ }
 
   and ('a, 'u) proj =
-    { get : 'c. ('u ptr, 'c) m -> ('a ptr, 'c) m;
+    { get : 'c. ('u, 'c) m -> ('a, 'c) m;
       (* TODO: get: unknown -> unknown, rw -> rw, const forbidden *)
-      set : 'c. ('u ptr, rw) m -> ('a, 'c) m -> (unit, unknown) m
+      set : 'c. ('u, rw) m -> ('a, 'c) m -> (unit, unknown) m
     }
 
   and (!'a, +'c) m = ('a, 'a typ, 'c) typed_term
@@ -153,8 +153,8 @@ struct
   and ('a, 't) field = { name : string; ty : 'a typ }
 
   and ('a, 'u) proj =
-    { get : 'c. ('u ptr, 'c) m -> ('a ptr, 'c) m;
-      set : 'c. ('u ptr, rw) m -> ('a, 'c) m -> (unit, unknown) m
+    { get : 'c. ('u, 'c) m -> ('a, 'c) m;
+      set : 'c. ('u, rw) m -> ('a, 'c) m -> (unit, unknown) m
     }
 
   and (!'a, +'c) m = ('a, 'a typ, 'c) typed_term
@@ -298,13 +298,21 @@ module type Numerical = sig
 end
 
 module type Stack_frame = sig
+  type 'a numerical
+
+  type (_, _, _, _, _) record
+
   type !'a typ
 
   type (!'a, 'c) m
 
   type 'a stack_var =
-    | Single : 'a typ -> 'a ptr stack_var
-    | Array : 'a typ * (int64, unknown) m -> 'a arr stack_var
+    | SV_unit : unit ptr stack_var
+    | SV_bool : bool ptr stack_var
+    | SV_num : 'a numerical -> 'a ptr stack_var
+    | SV_ptr : 'a typ -> 'a ptr ptr stack_var
+    | SV_arr : 'a typ * (int64, unknown) m -> 'a arr stack_var
+    | SV_strct : (_, _, 'd vec, 'd vec, 't) record -> 't stack_var
 
   type (_, _) t =
     | Empty : ('b, 'b) t
@@ -314,9 +322,17 @@ module type Stack_frame = sig
 
   val ( @+ ) : 'a stack_var -> ('c, 'b) t -> (('a, rw) m -> 'c, 'b) t
 
-  val single : 'a typ -> 'a ptr stack_var
+  val unit : unit ptr stack_var
 
-  val array_i64 : 'a typ -> (int64, unknown) m -> 'a arr stack_var
+  val bool : bool ptr stack_var
+
+  val num : 'a numerical -> 'a ptr stack_var
+
+  val ptr : 'a typ -> 'a ptr ptr stack_var
+
+  val arr : 'a typ -> (int64, unknown) m -> 'a arr stack_var
+
+  val strct : (_, _, 'd vec, 'd vec, 't) record -> 't stack_var
 end
 
 module type Prototype = sig
@@ -359,7 +375,12 @@ module type S = sig
     Numerical with type 'a typ := 'a typ and type ('a, 'c) m := ('a, 'c) m
 
   module Stack_frame :
-    Stack_frame with type 'a typ := 'a typ and type ('a, 'c) m := ('a, 'c) m
+    Stack_frame
+      with type 'a numerical := 'a Type_system.numerical
+       and type ('a, 'b, 'c, 'd, 'e) record :=
+        ('a, 'b, 'c, 'd, 'e) Type_system.record
+       and type 'a typ := 'a typ
+       and type ('a, 'c) m := ('a, 'c) m
 
   module Prototype :
     Prototype with type 'a typ := 'a typ and type ('a, 'c) m := ('a, 'c) m
@@ -397,13 +418,11 @@ module type S = sig
 
   val store : ('a ptr, rw) m -> ('a, _) m -> (unit, unknown) m
 
-  (* TODO: load: unknown -> unknown, rw -> rw, const forbidden *)
   val load : ('a ptr, 'c) m -> ('a, 'c) m
 
   val set : ('a arr, rw) m -> (int64, _) m -> ('a, _) m -> (unit, unknown) m
 
-  (* TODO: load: unknown -> unknown, rw -> rw, const forbidden *)
-  val get : ('a arr, 'c) m -> (int64, _) m -> ('a ptr, 'c) m
+  val get : ('a arr, 'c) m -> (int64, _) m -> ('a, 'c) m
 
   val for_ :
     init:(int64, 'a) m ->
@@ -431,17 +450,28 @@ module type S = sig
 end
 
 module Stack_frame (E : sig
+  type 'a numerical
+
+  type (_, _, _, _, _) record
+
   type !'a typ
 
   type (!'a, 'c) m
 end) :
-  Stack_frame with type !'a typ := 'a E.typ and type ('a, 'c) m := ('a, 'c) E.m =
-struct
+  Stack_frame
+    with type 'a numerical := 'a E.numerical
+     and type ('a, 'b, 'c, 'd, 'e) record := ('a, 'b, 'c, 'd, 'e) E.record
+     and type !'a typ := 'a E.typ
+     and type ('a, 'c) m := ('a, 'c) E.m = struct
   open E
 
   type 'a stack_var =
-    | Single : 'a typ -> 'a ptr stack_var
-    | Array : 'a typ * (int64, unknown) m -> 'a arr stack_var
+    | SV_unit : unit ptr stack_var
+    | SV_bool : bool ptr stack_var
+    | SV_num : 'a numerical -> 'a ptr stack_var
+    | SV_ptr : 'a typ -> 'a ptr ptr stack_var
+    | SV_arr : 'a typ * (int64, unknown) m -> 'a arr stack_var
+    | SV_strct : (_, _, 'd vec, 'd vec, 't) record -> 't stack_var
 
   type (_, _) t =
     | Empty : ('b, 'b) t
@@ -451,9 +481,17 @@ struct
 
   let ( @+ ) v f = Cons (v, f)
 
-  let single ty = Single ty
+  let unit = SV_unit
 
-  let array_i64 ty len = Array (ty, len)
+  let bool = SV_bool
+
+  let num n = SV_num n
+
+  let ptr ty = SV_ptr ty
+
+  let arr ty len = SV_arr (ty, len)
+
+  let strct r = SV_strct r
 end
 
 module Prototype (E : sig
@@ -782,6 +820,8 @@ module LLVM_repr () : sig
 
   include S with type 'a k = 'a LLVM_state.t
 
+  exception Invalid_llvm_function of Llvm.llmodule * Llvm.llvalue
+
   val register_external :
     name:string ->
     signature:('s, ('ret, unknown) Type_system.m) Prototype.t ->
@@ -953,7 +993,7 @@ end = struct
     let struct_table = Hashtbl.create 11
 
     (* Convert type to Llvm repr *)
-    let rec of_type : type a. a Type_system.typ -> t LLVM_state.t =
+    let rec storage_of_type : type a. a Type_system.typ -> t LLVM_state.t =
       fun (type a) (typ : a Type_system.typ) : t LLVM_state.t ->
        let open LLVM_state in
        let* context in
@@ -962,17 +1002,19 @@ end = struct
        | TUnit -> return (int8_t context)
        | TBool -> return (bool_t context)
        | TPtr typ ->
-           let* lltyp = of_type typ in
+           let* lltyp = storage_of_type typ in
            return (Llvm.pointer_type lltyp)
        | TVec (static_size, typ) -> (
            match static_size with
            | None ->
-               let* lltyp = of_type typ in
+               let* lltyp = storage_of_type typ in
                return (Llvm.pointer_type lltyp)
            | Some sz when sz >= 0 ->
-               let* lltyp = of_type typ in
+               let* lltyp = storage_of_type typ in
                return (Llvm.array_type lltyp sz)
-           | _ -> failwith "LLVM_type.of_type: negative size in array type")
+           | _ ->
+               failwith "LLVM_type.storage_of_type: negative size in array type"
+           )
        | TRecord record_descr -> (
            match record_descr with
            | Record_fix (id, _) -> (
@@ -1018,7 +1060,7 @@ end = struct
             let fields = List.rev acc in
             k (Array.of_list fields)
         | Type_system.Record_field (field, rest) ->
-            let* typ = of_type field.ty in
+            let* typ = storage_of_type field.ty in
             loop rest (typ :: acc) k
         | Type_system.Record_fix (id, f) ->
             let unfolded = f (seal descr) in
@@ -1028,15 +1070,15 @@ end = struct
       in
       loop descr [] k
 
-    let of_type ty =
-      let open LLVM_state in
-      let* res = of_type ty in
-      Format.printf
-        "us: %a llvm: %s@."
-        Type_system.pp_typ
-        ty
-        (Llvm.string_of_lltype res) ;
-      return res
+    let surface_type : type a. a Type_system.typ -> t LLVM_state.t =
+     fun ty ->
+      match ty with
+      | TUnit -> storage_of_type ty
+      | TBool -> storage_of_type ty
+      | TNum _ -> storage_of_type ty
+      | TPtr _ -> storage_of_type ty
+      | TVec (_, _) -> storage_of_type ty
+      | TRecord _ -> storage_of_type (Type_system.TPtr ty)
   end
 
   (* helpers *)
@@ -1063,6 +1105,10 @@ end = struct
     Numerical with type 'a typ := 'a typ and type ('a, 'c) m := ('a, 'c) m
 
   module Stack_frame = Stack_frame (struct
+    type 'a numerical = 'a Type_system.numerical
+
+    type ('a, 'b, 'c, 'd, 'e) record = ('a, 'b, 'c, 'd, 'e) Type_system.record
+
     type nonrec 'a typ = 'a typ
 
     type nonrec ('a, 'c) m = ('a, 'c) m
@@ -1123,7 +1169,7 @@ end = struct
     let open LLVM_state in
     fun ty ->
       let ptrty = Type_system.ptr ty in
-      let* llty = LLVM_type.of_type ptrty in
+      let* llty = LLVM_type.storage_of_type ptrty in
       let llval = Llvm.const_null llty in
       llreturn llval ptrty
 
@@ -1290,7 +1336,7 @@ end = struct
     let* elements = loop (Array.to_list elements) [] in
     let elements = Array.of_list elements in
     let elt_ty = typeof elements.(0) in
-    let* llvm_elt_ty = LLVM_type.of_type elt_ty in
+    let* llvm_elt_ty = LLVM_type.storage_of_type elt_ty in
     let array = Llvm.const_array llvm_elt_ty (Array.map llval elements) in
     llreturn array (Type_system.vec ~static_size:(Array.length elements) elt_ty)
 
@@ -1346,7 +1392,8 @@ end = struct
       | Record_field (field, rest) ->
           let proj =
             { get =
-                (fun (type c) (record : (u ptr, c) m) ->
+                (fun (type c) (record : (u, c) m) ->
+                  (* Invariant: records are passed by reference *)
                   let* builder in
                   let* record in
                   let field_addr =
@@ -1356,9 +1403,16 @@ end = struct
                       ("fieldaddr_" ^ string_of_int index)
                       builder
                   in
-                  llreturn field_addr (Type_system.ptr field.ty));
+                  match field.ty with
+                  | TUnit | TBool | TNum _ | TPtr _ | TVec (_, _) ->
+                      let v =
+                        Llvm.build_load field_addr "record_get_load" builder
+                      in
+                      llreturn v field.ty
+                  | TRecord _ -> llreturn field_addr field.ty);
               set =
-                (fun (type c) (record : (u ptr, rw) m) (elt : (_, c) m) ->
+                (fun (type c) (record : (u, rw) m) (elt : (_, c) m) ->
+                  (* Invariant: records are passed by reference *)
                   let* builder in
                   let* record in
                   let* elt in
@@ -1369,8 +1423,22 @@ end = struct
                       ("fieldaddr_" ^ string_of_int index)
                       builder
                   in
-                  let _ = Llvm.build_store (llval elt) field_addr builder in
-                  unit_unknown)
+                  match field.ty with
+                  | TUnit | TBool | TNum _ | TPtr _ ->
+                      let _ = Llvm.build_store (llval elt) field_addr builder in
+                      unit_unknown
+                  | TVec (_, _) ->
+                      (* TODO: decide on a semantics for fixed size arrays *)
+                      assert false
+                  | TRecord _ ->
+                      let s =
+                        Llvm.build_load
+                          (llval elt)
+                          "record_set_strct_load"
+                          builder
+                      in
+                      let _ = Llvm.build_store s field_addr builder in
+                      unit_unknown)
             }
           in
           let elims = loop rest (index + 1) in
@@ -1405,13 +1473,13 @@ end = struct
     | TPtr typ -> llreturn (Llvm.build_load (llval ptr) "load_tmp" builder) typ
     | TNum _ | TRecord _ -> assert false
 
-  let get (type a) (arr : (a arr, 'c) m) (i : (int64, _) m) : (a ptr, 'c) m =
+  let get (type a) (arr : (a arr, 'c) m) (i : (int64, _) m) : (a, 'c) m =
     let open LLVM_state in
     let* builder in
     let* arr in
     let* i in
     match (typeof arr, typeof i) with
-    | (TVec (sz_opt, typ), TNum Int64_num) ->
+    | (TVec (sz_opt, typ), TNum Int64_num) -> (
         let addr =
           match sz_opt with
           | None -> Llvm.build_gep (llval arr) [| llval i |] "get_gep" builder
@@ -1422,7 +1490,15 @@ end = struct
                 "get_gep_inbounds"
                 builder
         in
-        llreturn addr (ptr typ)
+        let ty = typeof arr in
+        match ty with
+        | TNum _ | TRecord _ -> assert false
+        | TVec (_, elt_ty) -> (
+            match elt_ty with
+            | TRecord _ -> llreturn addr typ
+            | _ ->
+                let elt = Llvm.build_load addr "get_tmp" builder in
+                llreturn elt typ))
     | _ -> assert false
 
   let set (type a) (arr : (a arr, rw) m) (i : (int64, _) m) (e : (a, _) m) :
@@ -1435,12 +1511,21 @@ end = struct
     let addr =
       match typeof arr with
       | TVec (None, _) ->
-          Llvm.build_gep (llval arr) [| llval i |] "get_gep" builder
+          Llvm.build_gep (llval arr) [| llval i |] "set_gep" builder
       | TVec (Some _, _) ->
-          Llvm.build_in_bounds_gep (llval arr) [| llval i |] "get_gep" builder
+          Llvm.build_in_bounds_gep (llval arr) [| llval i |] "set_gep" builder
       | TNum _ | TRecord _ -> assert false
     in
-    let _ = Llvm.build_store (llval e) addr builder in
+    let ty = typeof arr in
+    (match ty with
+    | TNum _ | TRecord _ -> assert false
+    | TVec (_, elt_ty) -> (
+        match elt_ty with
+        | TRecord _ ->
+            (* TODO: what of fixed size arrays? *)
+            let strct = Llvm.build_load (llval e) "set_load_strct" builder in
+            ignore (Llvm.build_store strct addr builder)
+        | _ -> ignore (Llvm.build_store (llval e) addr builder))) ;
     unit_unknown
 
   let cond (type t) (cond : (bool, _) m) (dispatch : bool -> (t, _) m) =
@@ -1515,7 +1600,7 @@ end = struct
 
     Llvm.position_at_end for_entry builder ;
 
-    let* phi_ty = LLVM_type.of_type Type_system.int64 in
+    let* phi_ty = LLVM_type.surface_type Type_system.int64 in
     let phi = Llvm.build_empty_phi phi_ty "for_phi" builder in
     Llvm.add_incoming (llval init, last_init_block) phi ;
     let phi_expr = llreturn phi Type_system.int64 in
@@ -1637,17 +1722,35 @@ end = struct
         (frame : (a, s -> (ret, unknown) m) Stack_frame.t)
         (k : a)
         (s : s) ->
+      let* builder in
       match frame with
       | Empty -> k s
-      | Cons (Single typ, rest) ->
-          let* builder in
-          let* lltyp = LLVM_type.of_type typ in
-          let llalloca = Llvm.build_alloca lltyp "loc" builder in
-          let expr = llreturn llalloca (ptr typ) in
+      | Cons (SV_unit, rest) ->
+          let* llty = LLVM_type.storage_of_type Type_system.unit in
+          let varty = Type_system.(ptr unit) in
+          let llalloca = Llvm.build_alloca llty "loc" builder in
+          let expr = llreturn llalloca varty in
           alloca rest (k expr) s
-      | Cons (Array (typ, size), rest) ->
-          let* builder in
-          let* lltyp = LLVM_type.of_type typ in
+      | Cons (SV_bool, rest) ->
+          let* llty = LLVM_type.storage_of_type Type_system.bool in
+          let varty = Type_system.(ptr bool) in
+          let llalloca = Llvm.build_alloca llty "loc" builder in
+          let expr = llreturn llalloca varty in
+          alloca rest (k expr) s
+      | Cons (SV_num n, rest) ->
+          let* llty = LLVM_type.of_numerical n in
+          let varty = Type_system.(ptr (TNum n)) in
+          let llalloca = Llvm.build_alloca llty "loc" builder in
+          let expr = llreturn llalloca varty in
+          alloca rest (k expr) s
+      | Cons (SV_ptr ty, rest) ->
+          let* llty = LLVM_type.storage_of_type (Type_system.ptr ty) in
+          let varty = Type_system.(ptr (ptr ty)) in
+          let llalloca = Llvm.build_alloca llty "loc" builder in
+          let expr = llreturn llalloca varty in
+          alloca rest (k expr) s
+      | Cons (SV_arr (ty, size), rest) ->
+          let* lltyp = LLVM_type.storage_of_type ty in
           let* size in
           let llalloca =
             Llvm.build_array_alloca
@@ -1656,22 +1759,14 @@ end = struct
               "alloca_array_tmp"
               builder
           in
-          let arr = llreturn llalloca (vec typ) in
+          let arr = llreturn llalloca (vec ty) in
           alloca rest (k arr) s
-  (* | Cons (Array_static (ty, f, static_size), rest) ->
-   *     let* builder in
-   *     let* lltyp = LLVM_type.of_type ty in
-   *     let* size = I64.v (Int64.of_int static_size) in
-   *     let llalloca =
-   *       Llvm.build_array_alloca
-   *         lltyp
-   *         (llval size)
-   *         "alloca_array_tmp"
-   *         builder
-   *     in
-   *     let arr = llreturn llalloca (vec ~static_size ty) in
-   *     let init = Array_init_static { ty; f; arr; size = static_size } in
-   *     alloca rest (init :: initializers) (k arr) s *)
+      | Cons (SV_strct r, rest) ->
+          let varty = Type_system.seal r in
+          let* llty = LLVM_type.storage_of_type varty in
+          let llalloca = Llvm.build_alloca llty "loc" builder in
+          let expr = llreturn llalloca varty in
+          alloca rest (k expr) s
 
   let rec prototype :
       type s ret.
@@ -1682,10 +1777,10 @@ end = struct
      let open LLVM_state in
      match proto with
      | Prototype.Returning ty ->
-         let* retty = LLVM_type.of_type ty in
+         let* retty = LLVM_type.surface_type ty in
          return (Llvm.function_type retty (Array.of_list (List.rev acc)))
      | Prototype.Arrow (ty, rest) ->
-         let* llty = LLVM_type.of_type ty in
+         let* llty = LLVM_type.surface_type ty in
          prototype rest (llty :: acc)
 
   let rec args_to_tuple :
@@ -1699,6 +1794,8 @@ end = struct
           (fun rest -> (llreturn arg typ, rest))
           (args_to_tuple rest args)
     | _ -> None
+
+  exception Invalid_llvm_function of Llvm.llmodule * Llvm.llvalue
 
   let fundecl :
       name:string ->
@@ -1724,10 +1821,8 @@ end = struct
         let* res = alloca local body args in
         let _ = Llvm.build_ret (llval res) builder in
         let fundecl = { name; signature; fptr = fn } in
-        if not (Llvm_analysis.verify_function fn) then (
-          let* _ = LLVM_state.dump_module in
-          Llvm_analysis.assert_valid_function fn ;
-          failwith "Aborting")
+        if not (Llvm_analysis.verify_function fn) then
+          raise (Invalid_llvm_function (lmodule, fn))
         else return fundecl
 
   let call : type s ret. (s, ret) fundecl -> s Prototype.args -> ret =

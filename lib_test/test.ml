@@ -51,17 +51,17 @@ module Record = struct
 
   let t = seal record
 
-  let make i f =
-    struct_
-      record
-      (fun vec ->
-        match vec with
-        | Cons_vec ((f2 : float), Cons_vec ((f1 : int64), Nil_vec)) ->
-            { f1; f2 })
-      f
-      i
+  (* let make i f =
+   *   struct_
+   *     record
+   *     (fun vec ->
+   *       match vec with
+   *       | Cons_vec ((f2 : float), Cons_vec ((f1 : int64), Nil_vec)) ->
+   *           { f1; f2 })
+   *     f
+   *     i *)
 
-  let zero = make (I64.v 0L) (F64.v 0.0)
+  (* let zero = make (I64.v 0L) (F64.v 0.0) *)
 
   let (((), f1), f2) =
     projs record (fun { f1; f2 } -> Cons_vec (f2, Cons_vec (f1, Nil_vec)))
@@ -216,10 +216,8 @@ let run_llvm_program_generic ?(verbose = false) fn_typ main =
 
 let run_llvm_program1 (type a b) ?verbose (fn_typ : (a -> b) Ctypes.fn)
     (main :
-      ( (a, _) Repr.Type_system.m * unit,
-        (b, unknown) Repr.Type_system.m )
-      Repr.fundecl
-      Repr.k) inputs : b list =
+      (a Repr.Type_system.m * unit, b Repr.Type_system.m) Repr.fundecl Repr.k)
+    inputs : b list =
   let (engine, f) = run_llvm_program_generic ?verbose fn_typ main in
   let res = List.map f inputs in
   Llvm_executionengine.dispose engine ;
@@ -233,8 +231,8 @@ let run_llvm_program1_unsafe ?verbose fn_typ main inputs =
 
 let run_llvm_program2 (type a b c) ?verbose (fn_typ : (a -> b -> c) Ctypes.fn)
     (main :
-      ( (a, _) Repr.Type_system.m * ((b, _) Repr.Type_system.m * unit),
-        (c, unknown) Repr.Type_system.m )
+      ( a Repr.Type_system.m * (b Repr.Type_system.m * unit),
+        c Repr.Type_system.m )
       Repr.fundecl
       Repr.k) inputs : c list =
   let (engine, f) = run_llvm_program_generic ?verbose fn_typ main in
@@ -267,7 +265,7 @@ let test_fact () =
                ~step:(fun i -> I64.add i (I64.v 1L))
                (fun i -> store acc (I64.mul (load acc) i))
            in
-           (load acc :> (_, unknown) Repr.Type_system.m)))
+           load acc))
        [1L; 2L; 3L; 4L; 5L]
 
 let test_nested_switch () =
@@ -285,20 +283,15 @@ let test_nested_switch () =
            switch_i64
              (load local)
              ~cases:
-               [| (0L, fun () -> (I64.zero :> (_, unknown) Type_system.m));
+               [| (0L, fun () -> I64.zero);
                   ( 5L,
                     fun () ->
                       switch_i64
                         x
-                        ~cases:
-                          [| ( 11L,
-                               fun () ->
-                                 (I64.v 42L :> (_, unknown) Type_system.m) )
-                          |]
-                        ~default:(fun () ->
-                          (I64.v 1789L :> (_, unknown) Type_system.m)) )
+                        ~cases:[| (11L, fun () -> I64.v 42L) |]
+                        ~default:(fun () -> I64.v 1789L) )
                |]
-             ~default:(fun () -> (I64.v (-1L) :> (_, unknown) Type_system.m))))
+             ~default:(fun () -> I64.v (-1L))))
        [0L; 1L; 11L; 10L; 12L]
 
 let test_nested_cond () =
@@ -315,7 +308,7 @@ let test_nested_cond () =
            let* _ = store local (I64.div x (I64.v 2L)) in
            let* v = load local in
            cond (I64.eq v I64.zero) (function
-               | true -> (I64.zero :> (_, unknown) Type_system.m)
+               | true -> I64.zero
                | false ->
                    cond
                      (I64.eq v (I64.v 5L))
@@ -324,18 +317,12 @@ let test_nested_cond () =
                            cond
                              (I64.eq x (I64.v 11L))
                              (function
-                               | true ->
-                                   (I64.v 42L :> (_, unknown) Type_system.m)
-                               | false ->
-                                   (I64.v 1789L :> (_, unknown) Type_system.m))
+                               | true -> I64.v 42L | false -> I64.v 1789L)
                        | false ->
                            cond
                              (I64.eq x (I64.v 12L))
                              (function
-                               | true ->
-                                   (I64.v 42L :> (_, unknown) Type_system.m)
-                               | false ->
-                                   (I64.v 1789L :> (_, unknown) Type_system.m))))))
+                               | true -> I64.v 42L | false -> I64.v 1789L)))))
        [0L; 1L; 11L; 10L; 12L; 13L]
 
 type int64_pair = { x : int64; y : int64 }
@@ -363,15 +350,15 @@ module Int64_pair = struct
 
   let t = seal record
 
-  let make x y =
-    struct_
-      record
-      (fun vec ->
-        match vec with Cons_vec (y, Cons_vec (x, Nil_vec)) -> { x; y })
-      y
-      x
-
-  let zero = make (I64.v 0L) (I64.v 0L)
+  (* let make x y =
+   *   struct_
+   *     record
+   *     (fun vec ->
+   *       match vec with Cons_vec (y, Cons_vec (x, Nil_vec)) -> { x; y })
+   *     y
+   *     x
+   *
+   * let zero = make (I64.v 0L) (I64.v 0L) *)
 
   let (((), f1), f2) =
     projs record (fun { x; y } -> Cons_vec (y, Cons_vec (x, Nil_vec)))
@@ -459,7 +446,7 @@ let test_array_arg () =
                ~step:(fun i -> I64.add i (I64.v 1L))
                (fun i -> store acc (I64.add (load acc) (get x i)))
            in
-           (load acc :> (_, unknown) Type_system.m)))
+           load acc))
        [ array_to_ctypes [| 1L; 1L; 1L; 1L; 1L |];
          array_to_ctypes (Array.init 5 Int64.of_int) ]
 
@@ -473,8 +460,7 @@ let test_alloca_struct_array () =
          ~signature:Prototype.(Type_system.unit @-> returning Type_system.bool)
          ~local:
            Stack_frame.(
-             arr Int64_pair.t (I64.v 2L :> (_, unknown) Type_system.m)
-             @+ strct Int64_pair.record @+ empty)
+             arr Int64_pair.t (I64.v 2L) @+ strct Int64_pair.record @+ empty)
          ~body:(fun arr tmp (_, ()) ->
            let* s1 = get arr (I64.v 0L) in
            let* s2 = get arr (I64.v 1L) in
@@ -501,20 +487,6 @@ let test_alloca_struct_array () =
              && eq z (I64.v 2L))))
        [()]
 
-let wrong_array_get () =
-  Alcotest.(check (list unit)) "struct_arg" [()]
-  @@ run_llvm_program1_unsafe
-       Ctypes.(void @-> returning void)
-       (let open Repr in
-       fundecl
-         ~name:"struct_arg"
-         ~signature:Prototype.(Type_system.unit @-> returning Type_system.unit)
-         ~local:Stack_frame.empty
-         ~body:(fun (_x, ()) ->
-           let* a = array [| unit; unit; unit |] in
-           (get a I64.zero :> (_, unknown) Type_system.m)))
-       [()]
-
 let () =
   let open Alcotest in
   run
@@ -528,5 +500,4 @@ let () =
           test_case "struct_arg" `Quick test_struct_arg;
           test_case "struct_const_init" `Quick test_struct_const_init;
           test_case "array_arg" `Quick test_array_arg;
-          test_case "alloca_struct_array" `Quick test_alloca_struct_array
-          (* test_case "wrong_array_get" `Quick wrong_array_get *) ] ) ]
+          test_case "alloca_struct_array" `Quick test_alloca_struct_array ] ) ]

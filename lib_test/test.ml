@@ -1,38 +1,3 @@
-module Term (X : Suplex.Lang.S) = struct
-  let leaf = X.int64 0
-
-  let node x y = X.tuple [X.T.Ex_repr x; X.T.Ex_repr y]
-
-  let term =
-    let open X in
-    int64 3 >|= fun i ->
-    int64 4 >|= fun j ->
-    add Int64 i j >|= fun isum64 ->
-    int16 2 >|= fun i ->
-    int16 4 >|= fun j ->
-    add Int16 i j >|= fun isum16 ->
-    (* print isum64 >|= fun _ ->
-     * print isum16 >|= fun _ ->
-     * print (float 888.0) >|= fun _ -> *)
-    node isum16 isum64 >|= fun leaf ->
-    node leaf leaf >|= fun node ->
-    proj leaf { index = 0; desired_type = T.(TNum Int16) } >|= fun _result ->
-    proj
-      node
-      { index = 0;
-        desired_type = T.(TTpl [Ex_typ (TNum Int16); Ex_typ (TNum Int64)])
-      }
-    >|= fun result1 ->
-    proj result1 { index = 1; desired_type = T.(TNum Int64) }
-    >|= fun _result2 -> X.unit
-  (* print _result2 *)
-end
-
-(* module Foo = Suplex.Compile.Codegen (Term) *)
-(* module S = Suplex.S.Repr *)
-
-(* let _ = Suplex.S.res *)
-
 open Suplex.S2
 
 module Repr = LLVM_repr ()
@@ -50,18 +15,6 @@ module Record = struct
   let record = empty_rec |+ field "f1" int64 |+ field "f2" F64.t
 
   let t = seal record
-
-  (* let make i f =
-   *   struct_
-   *     record
-   *     (fun vec ->
-   *       match vec with
-   *       | Cons_vec ((f2 : float), Cons_vec ((f1 : int64), Nil_vec)) ->
-   *           { f1; f2 })
-   *     f
-   *     i *)
-
-  (* let zero = make (I64.v 0L) (F64.v 0.0) *)
 
   let (((), f1), f2) =
     projs record (fun { f1; f2 } -> Cons_vec (f2, Cons_vec (f1, Nil_vec)))
@@ -350,16 +303,6 @@ module Int64_pair = struct
 
   let t = seal record
 
-  (* let make x y =
-   *   struct_
-   *     record
-   *     (fun vec ->
-   *       match vec with Cons_vec (y, Cons_vec (x, Nil_vec)) -> { x; y })
-   *     y
-   *     x
-   *
-   * let zero = make (I64.v 0L) (I64.v 0L) *)
-
   let (((), f1), f2) =
     projs record (fun { x; y } -> Cons_vec (y, Cons_vec (x, Nil_vec)))
 end
@@ -487,17 +430,63 @@ let test_alloca_struct_array () =
              && eq z (I64.v 2L))))
        [()]
 
-let () =
-  let open Alcotest in
-  run
-    "llvm-codegen"
-    [ ( "basic",
-        [ test_case "fact" `Quick test_fact;
-          test_case "fact" `Quick test_fact;
-          test_case "nested_switch" `Quick test_nested_switch;
-          test_case "nested_cond" `Quick test_nested_cond;
-          test_case "struct_alloca" `Quick test_struct_alloca;
-          test_case "struct_arg" `Quick test_struct_arg;
-          test_case "struct_const_init" `Quick test_struct_const_init;
-          test_case "array_arg" `Quick test_array_arg;
-          test_case "alloca_struct_array" `Quick test_alloca_struct_array ] ) ]
+let for_loop start stop f =
+  let open Repr in
+  for_
+    ~init:(I64.v start)
+    ~pred:(fun i -> I64.le i (I64.v stop))
+    ~step:(fun i -> I64.add i (I64.v 1L))
+    f
+
+let test_alloca_fixed_size_array () =
+  (* Alcotest.(check (list bool)) "alloca_fixed_size_array" [true]
+   * @@ *)
+  run_llvm_program1_unsafe
+    ~verbose:true
+    Ctypes.(void @-> returning bool)
+    (let open Repr in
+    fundecl
+      ~name:"alloca_fixed_size_array"
+      ~signature:Prototype.(Type_system.unit @-> returning Type_system.bool)
+      ~local:
+        Stack_frame.(
+          arr Type_system.(vec ~static_size:3 int64) (I64.v 2L)
+          @+ num Type_system.Int64_num @+ empty)
+      ~body:(fun arr _acc (_, ()) ->
+        let* arr0 = get arr I64.zero in
+        let* arr1 = get arr I64.one in
+        let* _ = for_loop 0L 2L (fun i -> set arr0 i i) in
+        let* _ = for_loop 0L 2L (fun i -> set arr1 i i) in
+        (* let* _ = store acc I64.zero in
+         * let* _ =
+         *   for_loop 0L 2L (fun i ->
+         *       for_loop 0L 1L (fun j ->
+         *           store acc (I64.add (load acc) (get (get arr j) i))))
+         * in *)
+        (* TODO: fixed size arrays are not arrays, they're tuples *)
+        tt
+        (* I64.eq (load acc) (I64.v 6L) *)))
+    [()]
+
+let _ = test_alloca_fixed_size_array ()
+
+(* TODO: test linked list, fixed size arrays in structs *)
+
+(* let () =
+ *   let open Alcotest in
+ *   run
+ *     "llvm-codegen"
+ *     [ ( "basic",
+ *         [ test_case "fact" `Quick test_fact;
+ *           test_case "fact" `Quick test_fact;
+ *           test_case "nested_switch" `Quick test_nested_switch;
+ *           test_case "nested_cond" `Quick test_nested_cond;
+ *           test_case "struct_alloca" `Quick test_struct_alloca;
+ *           test_case "struct_arg" `Quick test_struct_arg;
+ *           test_case "struct_const_init" `Quick test_struct_const_init;
+ *           test_case "array_arg" `Quick test_array_arg;
+ *           test_case "alloca_struct_array" `Quick test_alloca_struct_array;
+ *           test_case
+ *             "alloca_fixed_size_array"
+ *             `Quick
+ *             test_alloca_fixed_size_array ] ) ] *)

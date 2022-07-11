@@ -1320,12 +1320,12 @@ end = struct
                       builder
                   in
                   match field.ty with
-                  | TUnit | TBool | TNum _ | TPtr _ | TVec (_, _) ->
+                  | TUnit | TBool | TNum _ | TPtr _ | TVec (None, _) ->
                       let v =
                         Llvm.build_load field_addr "record_get_load" builder
                       in
                       llreturn v field.ty
-                  | TRecord _ -> llreturn field_addr field.ty);
+                  | TVec (Some _, _) | TRecord _ -> llreturn field_addr field.ty);
               set =
                 (fun (record : u m) (elt : _ m) ->
                   (* Invariant: records are passed by reference *)
@@ -1340,11 +1340,12 @@ end = struct
                       builder
                   in
                   match field.ty with
-                  | TUnit | TBool | TNum _ | TPtr _ ->
+                  | TUnit | TBool | TNum _ | TPtr _ | TVec (None, _) ->
                       let _ = Llvm.build_store (llval elt) field_addr builder in
                       unit_unknown
-                  | TVec (_, _) ->
+                  | TVec (Some _, _) ->
                       (* TODO: decide on a semantics for fixed size arrays *)
+                      (* TODO: we can't distinguish with our types that an array is statically or dynamically sized, so they can clash! *)
                       assert false
                   | TRecord _ ->
                       let s =
@@ -1395,27 +1396,23 @@ end = struct
     let* arr in
     let* i in
     match (typeof arr, typeof i) with
-    | (TVec (sz_opt, typ), TNum Int64_num) -> (
-        let addr =
-          match sz_opt with
-          | None -> Llvm.build_gep (llval arr) [| llval i |] "get_gep" builder
-          | Some _ ->
-              Llvm.build_in_bounds_gep
-                (llval arr)
-                [| llval i |]
-                "get_gep_inbounds"
-                builder
-        in
-        let ty = typeof arr in
-        match ty with
-        | TNum _ | TRecord _ -> assert false
-        | TVec (_, elt_ty) -> (
-            match elt_ty with
-            | TRecord _ -> llreturn addr typ
-            | _ ->
-                let elt = Llvm.build_load addr "get_tmp" builder in
-                llreturn elt typ))
-    | _ -> assert false
+    | (TVec (_sz_opt, elt_ty), TNum Int64_num) -> (
+        let addr = Llvm.build_gep (llval arr) [| llval i |] "get_gep" builder in
+        match elt_ty with
+        | TRecord _ ->
+            (* A value of [struct] type is mapped in LLVM to a pointer to that structure.
+               [addr] has LLVM type `t*` where [t] is the type of the struct. *)
+            llreturn addr elt_ty
+        | TVec (Some _size, _) ->
+            (* Fixed-size arrays are mapped in LLVM to a pointer to that array.
+               The returned value has type [array t n].
+               [addr] has LLVM type `[t x n]*` where [t] is the type of elements of
+               the fixed-size array. *)
+            llreturn addr elt_ty
+        | _ ->
+            let elt = Llvm.build_load addr "get_tmp" builder in
+            llreturn elt elt_ty)
+    | (TVec _, _) | (TNum _, _) | (TRecord _, _) -> assert false
 
   let set (type a) (arr : a arr m) (i : int64 m) (e : a m) : unit m =
     let open LLVM_state in
@@ -1423,25 +1420,21 @@ end = struct
     let* arr in
     let* i in
     let* e in
-    let addr =
-      match typeof arr with
-      | TVec (None, _) ->
-          Llvm.build_gep (llval arr) [| llval i |] "set_gep" builder
-      | TVec (Some _, _) ->
-          Llvm.build_in_bounds_gep (llval arr) [| llval i |] "set_gep" builder
-      | TNum _ | TRecord _ -> assert false
-    in
-    let ty = typeof arr in
-    (match ty with
+    match typeof arr with
     | TNum _ | TRecord _ -> assert false
-    | TVec (_, elt_ty) -> (
-        match elt_ty with
-        | TRecord _ ->
-            (* TODO: what of fixed size arrays? *)
-            let strct = Llvm.build_load (llval e) "set_load_strct" builder in
-            ignore (Llvm.build_store strct addr builder)
-        | _ -> ignore (Llvm.build_store (llval e) addr builder))) ;
-    unit_unknown
+    | TVec (None, elt_ty) ->
+        (let addr =
+           Llvm.build_gep (llval arr) [| llval i |] "set_gep" builder
+         in
+         match elt_ty with
+         | TRecord _ ->
+             (* TODO: what of fixed size arrays? *)
+             let strct = Llvm.build_load (llval e) "set_load_strct" builder in
+             ignore (Llvm.build_store strct addr builder)
+         | TVec (Some _, _) -> assert false
+         | _ -> ignore (Llvm.build_store (llval e) addr builder)) ;
+        unit_unknown
+    | TVec (Some _, _) -> assert false
 
   let cond (type t) (cond : bool m) (dispatch : bool -> t m) =
     let open LLVM_state in
@@ -1493,18 +1486,31 @@ end = struct
       unit m =
    fun ~init ~pred ~step body ->
     let open LLVM_state in
+    let for_name = random_name () in
     let* builder in
     let* context in
 
     let current_block = Llvm.insertion_block builder in
-    let enclosing_func = Llvm.block_parent current_block in
 
-    let for_init = Llvm.append_block context "for_init" enclosing_func in
-    let for_entry = Llvm.append_block context "for_entry" enclosing_func in
-    let for_body = Llvm.append_block context "for_body" enclosing_func in
-    let for_exit = Llvm.append_block context "for_exit" enclosing_func in
+    let for_init =
+      create_block_after
+        context
+        builder
+        current_block
+        (sf "for_%s_init" for_name)
+    in
+    let for_entry =
+      append_to_insertion_block context builder (sf "for_%s_entry" for_name)
+    in
+    let for_body =
+      append_to_insertion_block context builder (sf "for_%s_body" for_name)
+    in
+    let for_exit =
+      append_to_insertion_block context builder (sf "for_%s_exit" for_name)
+    in
 
     (* Add unconditional jump from [current_block] inherited from context to [for_init] *)
+    Llvm.position_at_end current_block builder ;
     let _ = Llvm.build_br for_init builder in
     (* codegen init *)
     Llvm.position_at_end for_init builder ;
@@ -1516,7 +1522,7 @@ end = struct
     Llvm.position_at_end for_entry builder ;
 
     let* phi_ty = LLVM_type.surface_type Type_system.int64 in
-    let phi = Llvm.build_empty_phi phi_ty "for_phi" builder in
+    let phi = Llvm.build_empty_phi phi_ty (sf "for_%s_phi" for_name) builder in
     Llvm.add_incoming (llval init, last_init_block) phi ;
     let phi_expr = llreturn phi Type_system.int64 in
     let* cond = pred phi_expr in
@@ -1615,19 +1621,6 @@ end = struct
       Llvm.build_phi all_cases (sf "switch_%s_phi_node" switch_name) builder
     in
     llreturn result (typeof default)
-
-  (* type init =
-   *   | Scalar_init : { init : 'a m; ptr : Llvm.llvalue } -> init
-   *   | Array_init :
-   *       { init : 'a m; arr : 'a arr m; size : Llvm.llvalue }
-   *       -> init *)
-  (* | Array_init_static :
-   *     { ty : 'a Type_system.typ;
-   *       f : int -> 'a m;
-   *       arr : 'a array m;
-   *       size : int
-   *     }
-   *     -> init *)
 
   let rec alloca :
       type a s ret. (a, s -> ret m) Stack_frame.t -> a -> s -> ret m =

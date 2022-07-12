@@ -1,22 +1,8 @@
 type _ vec = Nil_vec : unit vec | Cons_vec : 'a * 'b vec -> ('a * 'b) vec
 
-(*
-const = ro, valid as initializers
-rw = rw (invalid as initializer)
-unknown = ro but invalid as initializers
-*)
-
-(** [`const] values correpsond to values that can serve as initializers. *)
-type const = [ `const ]
-
-(** All values that can be written to must be [`rw]. *)
-type rw = [ `rw ]
-
-type unknown = [ `const | `rw ]
-
 type 'a ptr = Ptr
 
-type 'a arr = Array
+type 'a arr = Arr
 
 module type Type_system_sig = sig
   type (!'a, 'a_typ) typed_term
@@ -40,7 +26,7 @@ module type Type_system_sig = sig
     | TBool : bool typ
     | TNum : 'a numerical -> 'a typ
     | TPtr : 'a typ -> 'a ptr typ
-    | TVec : int option * 'a typ -> 'a arr typ
+    | TArr : int option * 'a typ -> 'a arr typ
     | TRecord : (_, 'u vec, 'u vec, 't) record -> 't typ
 
   and ('elim, 't_acc, 't, 'u) record =
@@ -127,7 +113,7 @@ struct
     | TBool : bool typ
     | TNum : 'a numerical -> 'a typ
     | TPtr : 'a typ -> 'a ptr typ
-    | TVec : int option * 'a typ -> 'a arr typ
+    | TArr : int option * 'a typ -> 'a arr typ
     | TRecord : (_, 'u vec, 'u vec, 't) record -> 't typ
 
   and ('elim, 't_acc, 't, 'u) record =
@@ -187,7 +173,7 @@ struct
      | TBool -> Format.pp_print_string fmtr "bool"
      | TNum n -> pp_numerical fmtr n
      | TPtr t -> Format.fprintf fmtr "[%a]" (pp_typ visited) t
-     | TVec (static_size, t) -> (
+     | TArr (static_size, t) -> (
          match static_size with
          | None -> Format.fprintf fmtr "<%a>" (pp_typ visited) t
          | Some sz -> Format.fprintf fmtr "<%a:%d>" (pp_typ visited) t sz)
@@ -231,7 +217,7 @@ struct
       (fun sz ->
         if sz < 0 then invalid_arg "Type_system.vec: negative static size")
       static_size ;
-    TVec (static_size, x)
+    TArr (static_size, x)
 
   let empty_rec = Record_empty
 
@@ -982,7 +968,7 @@ end = struct
        | TPtr typ ->
            let* lltyp = storage_of_type typ in
            return (Llvm.pointer_type lltyp)
-       | TVec (static_size, typ) -> (
+       | TArr (static_size, typ) -> (
            match static_size with
            | None ->
                let* lltyp = storage_of_type typ in
@@ -1054,7 +1040,7 @@ end = struct
       | TBool -> storage_of_type ty
       | TNum _ -> storage_of_type ty
       | TPtr _ -> storage_of_type ty
-      | TVec (_, _) -> storage_of_type ty
+      | TArr (_, _) -> storage_of_type ty
       | TRecord _ -> storage_of_type (Type_system.TPtr ty)
   end
 
@@ -1320,12 +1306,12 @@ end = struct
                       builder
                   in
                   match field.ty with
-                  | TUnit | TBool | TNum _ | TPtr _ | TVec (None, _) ->
+                  | TUnit | TBool | TNum _ | TPtr _ | TArr (None, _) ->
                       let v =
                         Llvm.build_load field_addr "record_get_load" builder
                       in
                       llreturn v field.ty
-                  | TVec (Some _, _) | TRecord _ -> llreturn field_addr field.ty);
+                  | TArr (Some _, _) | TRecord _ -> llreturn field_addr field.ty);
               set =
                 (fun (record : u m) (elt : _ m) ->
                   (* Invariant: records are passed by reference *)
@@ -1340,10 +1326,10 @@ end = struct
                       builder
                   in
                   match field.ty with
-                  | TUnit | TBool | TNum _ | TPtr _ | TVec (None, _) ->
+                  | TUnit | TBool | TNum _ | TPtr _ | TArr (None, _) ->
                       let _ = Llvm.build_store (llval elt) field_addr builder in
                       unit_unknown
-                  | TVec (Some _, _) ->
+                  | TArr (Some _, _) ->
                       (* TODO: decide on a semantics for fixed size arrays *)
                       (* TODO: we can't distinguish with our types that an array is statically or dynamically sized, so they can clash! *)
                       assert false
@@ -1396,14 +1382,14 @@ end = struct
     let* arr in
     let* i in
     match (typeof arr, typeof i) with
-    | (TVec (_sz_opt, elt_ty), TNum Int64_num) -> (
+    | (TArr (_sz_opt, elt_ty), TNum Int64_num) -> (
         let addr = Llvm.build_gep (llval arr) [| llval i |] "get_gep" builder in
         match elt_ty with
         | TRecord _ ->
             (* A value of [struct] type is mapped in LLVM to a pointer to that structure.
                [addr] has LLVM type `t*` where [t] is the type of the struct. *)
             llreturn addr elt_ty
-        | TVec (Some _size, _) ->
+        | TArr (Some _size, _) ->
             (* Fixed-size arrays are mapped in LLVM to a pointer to that array.
                The returned value has type [array t n].
                [addr] has LLVM type `[t x n]*` where [t] is the type of elements of
@@ -1412,7 +1398,7 @@ end = struct
         | _ ->
             let elt = Llvm.build_load addr "get_tmp" builder in
             llreturn elt elt_ty)
-    | (TVec _, _) | (TNum _, _) | (TRecord _, _) -> assert false
+    | (TArr _, _) | (TNum _, _) | (TRecord _, _) -> assert false
 
   let set (type a) (arr : a arr m) (i : int64 m) (e : a m) : unit m =
     let open LLVM_state in
@@ -1422,7 +1408,7 @@ end = struct
     let* e in
     match typeof arr with
     | TNum _ | TRecord _ -> assert false
-    | TVec (None, elt_ty) ->
+    | TArr (None, elt_ty) ->
         (let addr =
            Llvm.build_gep (llval arr) [| llval i |] "set_gep" builder
          in
@@ -1431,10 +1417,10 @@ end = struct
              (* TODO: what of fixed size arrays? *)
              let strct = Llvm.build_load (llval e) "set_load_strct" builder in
              ignore (Llvm.build_store strct addr builder)
-         | TVec (Some _, _) -> assert false
+         | TArr (Some _, _) -> assert false
          | _ -> ignore (Llvm.build_store (llval e) addr builder)) ;
         unit_unknown
-    | TVec (Some _, _) -> assert false
+    | TArr (Some _, _) -> assert false
 
   let cond (type t) (cond : bool m) (dispatch : bool -> t m) =
     let open LLVM_state in

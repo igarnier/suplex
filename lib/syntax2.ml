@@ -42,9 +42,22 @@ module type Type_system_sig = sig
         int * ('u typ -> ('b, 'd vec, 'd vec, 'u) record)
         -> ('b, 'd vec, 'd vec, 'u) record
 
-  and ('a, 't) field = { name : string; ty : 'a typ }
+  and ('a, 't) field =
+    | Simple_field : { name : string; ty : 'a typ } -> ('a, 't) field
+    | Aggregate_ptr_field :
+        { name : string; ty : 'a ptr typ }
+        -> ('a ptr, 't) field
 
-  and ('a, 'u) proj = { get : 'u m -> 'a m; set : 'u m -> 'a m -> unit m }
+  and ('a, 'u) proj =
+    | Simple_proj :
+        { get : 'u m -> 'a m; set : 'u m -> 'a m -> unit m }
+        -> ('a, 'u) proj
+    | Aggregate_ptr_proj :
+        { get : 'u m -> 'a ptr m;
+          set : 'u m -> 'a ptr m -> unit m;
+          setaddr : 'u m -> 'a m -> unit m
+        }
+        -> ('a ptr, 'u) proj
 
   and !'a m = ('a, 'a typ) typed_term
 
@@ -59,6 +72,10 @@ module type Type_system_sig = sig
   val numerical_kind : 't numerical -> [ `fp | `int ]
 
   type ('a, 'b) eq = Refl_eq : ('a, 'a) eq
+
+  val field_name : ('a, 'b) field -> string
+
+  val field_type : ('a, 'b) field -> 'a typ
 
   val pp_typ : Format.formatter -> 'a typ -> unit
 
@@ -125,9 +142,22 @@ struct
         int * ('u typ -> ('b, 'd vec, 'd vec, 'u) record)
         -> ('b, 'd vec, 'd vec, 'u) record
 
-  and ('a, 't) field = { name : string; ty : 'a typ }
+  and ('a, 't) field =
+    | Simple_field : { name : string; ty : 'a typ } -> ('a, 't) field
+    | Aggregate_ptr_field :
+        { name : string; ty : 'a ptr typ }
+        -> ('a ptr, 't) field
 
-  and ('a, 'u) proj = { get : 'u m -> 'a m; set : 'u m -> 'a m -> unit m }
+  and ('a, 'u) proj =
+    | Simple_proj :
+        { get : 'u m -> 'a m; set : 'u m -> 'a m -> unit m }
+        -> ('a, 'u) proj
+    | Aggregate_ptr_proj :
+        { get : 'u m -> 'a ptr m;
+          set : 'u m -> 'a ptr m -> unit m;
+          setaddr : 'u m -> 'a m -> unit m
+        }
+        -> ('a ptr, 'u) proj
 
   and !'a m = ('a, 'a typ) typed_term
 
@@ -162,6 +192,14 @@ struct
 
   type ('a, 'b) eq = Refl_eq : ('a, 'a) eq
 
+  let field_name : type a. (a, _) field -> string = function
+    | Simple_field { name; _ } -> name
+    | Aggregate_ptr_field { name; _ } -> name
+
+  let field_type : type a. (a, _) field -> a typ = function
+    | Simple_field { ty; _ } -> ty
+    | Aggregate_ptr_field { ty; _ } -> ty
+
   let rec pp_typ : type a. int list -> Format.formatter -> a typ -> unit =
     fun (type a) visited fmtr (typ : a typ) ->
      match typ with
@@ -181,7 +219,12 @@ struct
            match descr with
            | Record_empty -> ()
            | Record_field (field, rest) ->
-               Format.fprintf fmtr "%s: %a" field.name (pp_typ visited) field.ty ;
+               Format.fprintf
+                 fmtr
+                 "%s: %a"
+                 (field_name field)
+                 (pp_typ visited)
+                 (field_type field) ;
                Format.fprintf fmtr ";@," ;
                loop visited fmtr rest
            | Record_fix (id, f) ->
@@ -218,7 +261,12 @@ struct
 
   let empty_rec = Record_empty
 
-  let field name ty = { name; ty }
+  let field : type a. string -> a typ -> (a, _) field =
+   fun name ty ->
+    match ty with
+    | TPtr (TRecord _) -> Aggregate_ptr_field { name; ty }
+    | TPtr (TArr (Size_cst _, _)) -> Aggregate_ptr_field { name; ty }
+    | _ -> Simple_field { name; ty }
 
   let ( |+ ) rest field = Record_field (field, rest)
 
@@ -371,6 +419,12 @@ module type S = sig
   val projs :
     ('elim, 'a vec, 'a vec, 'u) Type_system.record -> ('u -> 'a vec) -> 'elim
 
+  val ( .%{} ) : 'a m -> ('b, 'a) Type_system.proj -> 'b m
+
+  val ( .%{}<- ) : 'a m -> ('b, 'a) Type_system.proj -> 'b m -> unit m
+
+  val ( .&{}<- ) : 'a m -> ('b ptr, 'a) Type_system.proj -> 'b m -> unit m
+
   val seq : unit m -> (unit -> 'a m) -> 'a m
 
   val ( let* ) : 'a m -> ('a m -> 'b m) -> 'b m
@@ -381,7 +435,15 @@ module type S = sig
 
   val set : ('a, 'c) arr m -> int64 m -> 'a m -> unit m
 
+  val setaddr : ('a ptr, 'c) arr m -> int64 m -> 'a m -> unit m
+
   val get : ('a, 'c) arr m -> int64 m -> 'a m
+
+  val ( .%[] ) : ('a, 'c) arr m -> int64 m -> 'a m
+
+  val ( .%[]<- ) : ('a, 'c) arr m -> int64 m -> 'a m -> unit m
+
+  val ( .&[]<- ) : ('a ptr, 'c) arr m -> int64 m -> 'a m -> unit m
 
   val for_ :
     init:int64 m ->
@@ -402,7 +464,7 @@ module type S = sig
     name:string ->
     signature:('s, 'ret m) Prototype.t ->
     local:('b, 's -> 'ret m) Stack_frame.t ->
-    body:'b ->
+    body:(('s, 'ret m) fundecl -> 'b) ->
     ('s, 'ret m) fundecl k
 
   val call : ('s, 'ret) fundecl -> 's Prototype.args -> 'ret
@@ -451,7 +513,9 @@ end) :
 
   let arr ty len = SV_arr (ty, len)
 
-  let arr_cst ty len = SV_arr_cst (ty, len)
+  let arr_cst ty len =
+    if len < 0L then invalid_arg "arr_cst: negative size" ;
+    SV_arr_cst (ty, len)
 
   let strct r = SV_strct r
 end
@@ -785,6 +849,11 @@ module LLVM_repr () : sig
 
   val null_ptr : 'a Type_system.typ -> 'a ptr Type_system.m
 
+  val is_null : 'a ptr Type_system.m -> bool Type_system.m
+
+  val ptr_eq :
+    'a ptr Type_system.m -> 'a ptr Type_system.m -> bool Type_system.m
+
   module I32 : Numerical with type t = int32 and type v = int32
 
   module F64 : Numerical with type t = float and type v = float
@@ -968,8 +1037,8 @@ end = struct
                let* lltyp = storage_of_type typ in
                return (Llvm.array_type lltyp (Int64.to_int sz))
            | _ ->
-               failwith "LLVM_type.storage_of_type: negative size in array type"
-           )
+               (* Detected at type construction time *)
+               assert false)
        | TRecord record_descr -> (
            match record_descr with
            | Record_fix (id, _) -> (
@@ -1014,7 +1083,7 @@ end = struct
             let fields = List.rev acc in
             k (Array.of_list fields)
         | Type_system.Record_field (field, rest) ->
-            let* typ = storage_of_type field.ty in
+            let* typ = storage_of_type (field_type field) in
             loop rest (typ :: acc) k
         | Type_system.Record_fix (id, f) ->
             let unfolded = f (seal descr) in
@@ -1081,11 +1150,6 @@ end = struct
   let fundecl_name ({ name; _ } : (_, _) fundecl) = name
 
   let unit : unit m =
-    let open LLVM_state in
-    let* context in
-    llreturn (Llvm.const_int (LLVM_type.int8_t context) 0) Type_system.unit
-
-  let unit_unknown : unit m =
     let open LLVM_state in
     let* context in
     llreturn (Llvm.const_int (LLVM_type.int8_t context) 0) Type_system.unit
@@ -1271,9 +1335,111 @@ end = struct
       bool_binop (Llvm.build_fcmp Llvm.Fcmp.Oeq) "float_eq" lhs rhs
   end
 
+  let is_null : 'a ptr Type_system.m -> bool Type_system.m =
+    let open LLVM_state in
+    fun ptr ->
+      let* context in
+      let* builder in
+      let* ptr in
+      let ptr =
+        Llvm.build_ptrtoint
+          (llval ptr)
+          (LLVM_type.int64_t context)
+          "ptr_to_int"
+          builder
+      in
+      I64.eq I64.zero (llreturn ptr Type_system.int64)
+
+  let ptr_eq :
+      'a ptr Type_system.m -> 'a ptr Type_system.m -> bool Type_system.m =
+    let open LLVM_state in
+    fun ptr ptr' ->
+      let* context in
+      let* builder in
+      let* ptr in
+      let* ptr' in
+      let ptr =
+        Llvm.build_ptrtoint
+          (llval ptr)
+          (LLVM_type.int64_t context)
+          "ptr_to_int"
+          builder
+      in
+      let ptr' =
+        Llvm.build_ptrtoint
+          (llval ptr')
+          (LLVM_type.int64_t context)
+          "ptr_to_int"
+          builder
+      in
+      I64.eq (llreturn ptr Type_system.int64) (llreturn ptr' Type_system.int64)
+
   let ( && ) lhs rhs = bool_binop Llvm.build_and "bool_and" lhs rhs
 
   let ( || ) lhs rhs = bool_binop Llvm.build_or "bool_or" lhs rhs
+
+  let get_field : type a u. (a, u) field -> int -> u m -> a m =
+   fun field index record ->
+    let open LLVM_state in
+    (* Invariant: records and fixed-size arrays are passed by reference *)
+    let* builder in
+    let* record in
+    let field_addr =
+      Llvm.build_struct_gep
+        (llval record)
+        index
+        ("fieldaddr_" ^ string_of_int index)
+        builder
+    in
+    let fty = field_type field in
+    match fty with
+    | TUnit | TBool | TNum _ | TPtr _ | TArr (Size_unk, _) ->
+        let v = Llvm.build_load field_addr "record_get_load" builder in
+        llreturn v fty
+    | TArr (Size_cst _, _) | TRecord _ -> llreturn field_addr fty
+
+  let set_field : type a u. (a, u) field -> int -> u m -> a m -> unit m =
+   fun field index record elt ->
+    let open LLVM_state in
+    (* Invariant: records and fixed-size arrays are passed by reference *)
+    let* builder in
+    let* record in
+    let* elt in
+    let field_addr =
+      Llvm.build_struct_gep
+        (llval record)
+        index
+        ("fieldaddr_" ^ string_of_int index)
+        builder
+    in
+    let fty = field_type field in
+    match fty with
+    | TUnit | TBool | TNum _ | TPtr _ | TArr (Size_unk, _) ->
+        let _ = Llvm.build_store (llval elt) field_addr builder in
+        unit
+    | TArr (Size_cst sz, _) ->
+        let () =
+          match typeof elt with
+          | TArr (Size_cst sz', _) as eltty ->
+              if sz <> sz' then
+                Format.kasprintf
+                  invalid_arg
+                  "set_field: type mismatch: field has type %a, operand has \
+                   type %a"
+                  Type_system.pp_typ
+                  fty
+                  Type_system.pp_typ
+                  eltty
+              else ()
+          | _ -> assert false
+        in
+        let s = Llvm.build_load (llval elt) "record_set_arr_load" builder in
+        let _ = Llvm.build_store s field_addr builder in
+        unit
+    | TRecord _ ->
+        let s = Llvm.build_load (llval elt) "record_set_strct_load" builder in
+        let _ = Llvm.build_store s field_addr builder in
+        unit
 
   let projs : type elim res u. (elim, _, res, u) record -> _ -> elim =
    fun record _conv ->
@@ -1283,70 +1449,62 @@ end = struct
      fun (descr : (elim, acc, res, u) Type_system.record) index ->
       match descr with
       | Record_empty -> (() : elim)
-      | Record_field (field, rest) ->
+      | Record_field ((Aggregate_ptr_field _ as field), rest) ->
+          let setaddr (record : u m) (elt : _ m) =
+            let* builder in
+            let* record in
+            let* elt in
+            let field_addr =
+              Llvm.build_struct_gep
+                (llval record)
+                index
+                ("fieldaddr_" ^ string_of_int index)
+                builder
+            in
+            let _ = Llvm.build_store (llval elt) field_addr builder in
+            unit
+          in
           let proj =
-            { get =
-                (fun (record : u m) ->
-                  (* Invariant: records and fixed-size arrays are passed by reference *)
-                  let* builder in
-                  let* record in
-                  let field_addr =
-                    Llvm.build_struct_gep
-                      (llval record)
-                      index
-                      ("fieldaddr_" ^ string_of_int index)
-                      builder
-                  in
-                  match field.ty with
-                  | TUnit | TBool | TNum _ | TPtr _ | TArr (Size_unk, _) ->
-                      let v =
-                        Llvm.build_load field_addr "record_get_load" builder
-                      in
-                      llreturn v field.ty
-                  | TArr (Size_cst _, _) | TRecord _ ->
-                      llreturn field_addr field.ty);
-              set =
-                (fun (record : u m) (elt : _ m) ->
-                  (* Invariant: records are passed by reference *)
-                  let* builder in
-                  let* record in
-                  let* elt in
-                  let field_addr =
-                    Llvm.build_struct_gep
-                      (llval record)
-                      index
-                      ("fieldaddr_" ^ string_of_int index)
-                      builder
-                  in
-                  match field.ty with
-                  | TUnit | TBool | TNum _ | TPtr _ | TArr (Size_unk, _) ->
-                      let _ = Llvm.build_store (llval elt) field_addr builder in
-                      unit_unknown
-                  | TArr (Size_cst _, _) ->
-                      let s =
-                        Llvm.build_load
-                          (llval elt)
-                          "record_set_arr_load"
-                          builder
-                      in
-                      let _ = Llvm.build_store s field_addr builder in
-                      unit_unknown
-                  | TRecord _ ->
-                      let s =
-                        Llvm.build_load
-                          (llval elt)
-                          "record_set_strct_load"
-                          builder
-                      in
-                      let _ = Llvm.build_store s field_addr builder in
-                      unit_unknown)
-            }
+            Aggregate_ptr_proj
+              { get = (fun r -> get_field field index r);
+                set = (fun r v -> set_field field index r v);
+                setaddr
+              }
+          in
+          let elims = loop rest (index + 1) in
+          ((elims, proj) : elim)
+      | Record_field ((Simple_field _ as field), rest) ->
+          let proj =
+            Simple_proj
+              { get = (fun r -> get_field field index r);
+                set = (fun r v -> set_field field index r v)
+              }
           in
           let elims = loop rest (index + 1) in
           ((elims, proj) : elim)
       | Record_fix (_id, f) -> loop (f (seal descr)) index
     in
     loop record 0
+
+  let ( .%{} ) : type a b. a m -> (b, a) Type_system.proj -> b m =
+   fun strct field ->
+    match field with
+    | Simple_proj { get; _ } -> get strct
+    | Aggregate_ptr_proj { get; _ } -> get strct
+
+  let ( .%{}<- ) : type a b. a m -> (b, a) Type_system.proj -> b m -> unit m =
+   fun strct field v ->
+    match field with
+    | Simple_proj { set; _ } -> set strct v
+    | Aggregate_ptr_proj { set; _ } -> set strct v
+
+  let ( .&{}<- ) : type a b. a m -> (b ptr, a) Type_system.proj -> b m -> unit m
+      =
+   fun strct field v ->
+    match field with
+    | Simple_proj _ ->
+        invalid_arg "(.&{}<-) : field is not a pointer to some aggregate data"
+    | Aggregate_ptr_proj { setaddr; _ } -> setaddr strct v
 
   let seq (m : unit m) (f : unit -> 'b m) : 'b m =
     let open LLVM_state in
@@ -1363,14 +1521,41 @@ end = struct
     let* builder in
     let* ptr in
     let* v in
-    let _ = Llvm.build_store (llval v) (llval ptr) builder in
-    unit_unknown
+    match typeof ptr with
+    | TPtr (TRecord _) ->
+        let s = Llvm.build_load (llval ptr) "store_record_load" builder in
+        let _ = Llvm.build_store s (llval ptr) builder in
+        unit
+    | TPtr (TArr (Size_cst sz, _)) as pty ->
+        let () =
+          match typeof v with
+          | TArr (Size_cst sz', _) as eltty ->
+              if sz <> sz' then
+                Format.kasprintf
+                  invalid_arg
+                  "store: type mismatch: field has type %a, operand has type %a"
+                  Type_system.pp_typ
+                  pty
+                  Type_system.pp_typ
+                  eltty
+              else ()
+          | _ -> assert false
+        in
+        let s = Llvm.build_load (llval ptr) "store_array_load" builder in
+        let _ = Llvm.build_store s (llval ptr) builder in
+        unit
+    | TPtr _ ->
+        let _ = Llvm.build_store (llval v) (llval ptr) builder in
+        unit
+    | TNum _ | TRecord _ -> assert false
 
   let load (type a) (ptr : a ptr m) : a m =
     let open LLVM_state in
     let* builder in
     let* ptr in
     match typeof ptr with
+    | TPtr (TRecord _ as typ) -> llreturn (llval ptr) typ
+    | TPtr (TArr (Size_cst _, _) as typ) -> llreturn (llval ptr) typ
     | TPtr typ -> llreturn (Llvm.build_load (llval ptr) "load_tmp" builder) typ
     | TNum _ | TRecord _ -> assert false
 
@@ -1414,7 +1599,7 @@ end = struct
     let* e in
     match typeof arr with
     | TNum _ | TRecord _ -> assert false
-    | TArr (Size_unk, elt_ty) ->
+    | TArr (Size_unk, elt_ty) as aty ->
         (let addr =
            Llvm.build_gep (llval arr) [| llval i |] "set_gep" builder
          in
@@ -1422,13 +1607,28 @@ end = struct
          | TRecord _ ->
              let strct = Llvm.build_load (llval e) "set_load_strct" builder in
              ignore (Llvm.build_store strct addr builder)
-         | TArr (Size_cst _, _) ->
+         | TArr (Size_cst sz, _) ->
+             let () =
+               match typeof e with
+               | TArr (Size_cst sz', _) as ety ->
+                   if sz <> sz' then
+                     Format.kasprintf
+                       invalid_arg
+                       "set: type mismatch: array has type %a, element has \
+                        type %a"
+                       Type_system.pp_typ
+                       aty
+                       Type_system.pp_typ
+                       ety
+                   else ()
+               | _ -> assert false
+             in
              (* e is a pointer to a fixed-size array (LLVM type `[t x n]*`). *)
              let strct = Llvm.build_load (llval e) "set_load_arr" builder in
              ignore (Llvm.build_store strct addr builder)
          | _ -> ignore (Llvm.build_store (llval e) addr builder)) ;
-        unit_unknown
-    | TArr (Size_cst _, elt_ty) ->
+        unit
+    | TArr (Size_cst _, elt_ty) as aty ->
         (* [arr] is a pointer to a fixed-size array (LLVM type `[t x n]*`). *)
         let* context in
         let zero = Llvm.const_int (LLVM_type.int64_t context) 0 in
@@ -1439,12 +1639,74 @@ end = struct
         | TRecord _ ->
             let strct = Llvm.build_load (llval e) "set_load_strct" builder in
             ignore (Llvm.build_store strct addr builder)
-        | TArr (Size_cst _, _) ->
+        | TArr (Size_cst sz, _) ->
+            let () =
+              match typeof e with
+              | TArr (Size_cst sz', _) as ety ->
+                  if sz <> sz' then
+                    Format.kasprintf
+                      invalid_arg
+                      "set: type mismatch: array has type %a, element has type \
+                       %a"
+                      Type_system.pp_typ
+                      aty
+                      Type_system.pp_typ
+                      ety
+                  else ()
+              | _ -> assert false
+            in
             (* e is a pointer to a fixed-size array (LLVM type `[t x n]*`). *)
             let strct = Llvm.build_load (llval e) "set_load_arr" builder in
             ignore (Llvm.build_store strct addr builder)
         | _ -> ignore (Llvm.build_store (llval e) addr builder)) ;
-        unit_unknown
+        unit
+
+  let setaddr (type a c) (arr : (a ptr, c) arr m) (i : int64 m) (e : a m) :
+      unit m =
+    let open LLVM_state in
+    let* builder in
+    let* arr in
+    let* i in
+    let* e in
+    match typeof arr with
+    | TNum _ | TRecord _ -> assert false
+    | TArr (Size_unk, elt_ty) ->
+        (let addr =
+           Llvm.build_gep (llval arr) [| llval i |] "set_gep" builder
+         in
+         match elt_ty with
+         | TPtr (TRecord _) -> ignore (Llvm.build_store (llval e) addr builder)
+         | TPtr (TArr (Size_cst _, _)) ->
+             (* e is a pointer to a fixed-size array (LLVM type `[t x n]*`). *)
+             ignore (Llvm.build_store (llval e) addr builder)
+         | _ ->
+             invalid_arg
+               "setaddr: element type is not pointer to a struct or to a \
+                fixed-sized array") ;
+        unit
+    | TArr (Size_cst _, elt_ty) ->
+        (* [arr] is a pointer to a fixed-size array (LLVM type `[t x n]*`). *)
+        let* context in
+        let zero = Llvm.const_int (LLVM_type.int64_t context) 0 in
+        let addr =
+          Llvm.build_gep (llval arr) [| zero; llval i |] "set_gep" builder
+        in
+        (match elt_ty with
+        | TPtr (TRecord _) -> ignore (Llvm.build_store (llval e) addr builder)
+        | TPtr (TArr (Size_cst _, _)) ->
+            (* e is a pointer to a fixed-size array (LLVM type `[t x n]*`). *)
+            ignore (Llvm.build_store (llval e) addr builder)
+        | _ ->
+            invalid_arg
+              "setaddr: element type is not pointer to a struct or to a \
+               fixed-sized array") ;
+        unit
+
+  let ( .%[] ) arr i = get arr i
+
+  let ( .%[]<- ) arr i v = set arr i v
+
+  let ( .&[]<- ) arr i v = setaddr arr i v
 
   let cond (type t) (cond : bool m) (dispatch : bool -> t m) =
     let open LLVM_state in
@@ -1545,7 +1807,7 @@ end = struct
 
     Llvm.add_incoming (llval next, Llvm.insertion_block builder) phi ;
     Llvm.position_at_end for_exit builder ;
-    unit_unknown
+    unit
 
   let switch_i64 :
       int64 m ->
@@ -1715,7 +1977,7 @@ end = struct
       name:string ->
       signature:('s, 'ret m) Prototype.t ->
       local:('b, 's -> 'ret m) Stack_frame.t ->
-      body:'b ->
+      body:(('s, 'ret m) fundecl -> 'b) ->
       ('s, 'ret m) fundecl k =
    fun ~name ~signature ~local ~body ->
     let open LLVM_state in
@@ -1725,6 +1987,7 @@ end = struct
     let signature = signature in
     let* proto = prototype signature [] in
     let fn = Llvm.declare_function name proto lmodule in
+    let fundecl = { name; signature; fptr = fn } in
     let params = Llvm.params fn in
     match args_to_tuple signature (Array.to_list params) with
     | None ->
@@ -1732,9 +1995,8 @@ end = struct
     | Some args ->
         let bb = Llvm.append_block context "entry" fn in
         Llvm.position_at_end bb builder ;
-        let* res = alloca local body args in
+        let* res = alloca local (body fundecl) args in
         let _ = Llvm.build_ret (llval res) builder in
-        let fundecl = { name; signature; fptr = fn } in
         if not (Llvm_analysis.verify_function fn) then
           raise (Invalid_llvm_function (lmodule, fn))
         else return fundecl

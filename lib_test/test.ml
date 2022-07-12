@@ -378,7 +378,8 @@ let test_array_arg () =
        fundecl
          ~name:"array_arg"
          ~signature:
-           Prototype.(Type_system.(vec int64) @-> returning Type_system.int64)
+           Prototype.(
+             Type_system.(arr Size_unk int64) @-> returning Type_system.int64)
          ~local:Stack_frame.(num Type_system.Int64_num @+ empty)
          ~body:(fun acc (x, ()) ->
            let* _ = store acc I64.zero in
@@ -439,54 +440,84 @@ let for_loop start stop f =
     f
 
 let test_alloca_fixed_size_array () =
-  (* Alcotest.(check (list bool)) "alloca_fixed_size_array" [true]
-   * @@ *)
-  run_llvm_program1_unsafe
-    ~verbose:true
-    Ctypes.(void @-> returning bool)
-    (let open Repr in
-    fundecl
-      ~name:"alloca_fixed_size_array"
-      ~signature:Prototype.(Type_system.unit @-> returning Type_system.bool)
-      ~local:
-        Stack_frame.(
-          arr Type_system.(vec ~static_size:3 int64) (I64.v 2L)
-          @+ num Type_system.Int64_num @+ empty)
-      ~body:(fun arr _acc (_, ()) ->
-        let* arr0 = get arr I64.zero in
-        let* arr1 = get arr I64.one in
-        let* _ = for_loop 0L 2L (fun i -> set arr0 i i) in
-        let* _ = for_loop 0L 2L (fun i -> set arr1 i i) in
-        (* let* _ = store acc I64.zero in
-         * let* _ =
-         *   for_loop 0L 2L (fun i ->
-         *       for_loop 0L 1L (fun j ->
-         *           store acc (I64.add (load acc) (get (get arr j) i))))
-         * in *)
-        (* TODO: fixed size arrays are not arrays, they're tuples *)
-        tt
-        (* I64.eq (load acc) (I64.v 6L) *)))
-    [()]
+  Alcotest.(check (list bool)) "alloca_fixed_size_array" [true]
+  @@ run_llvm_program1_unsafe
+       ~verbose:true
+       Ctypes.(void @-> returning bool)
+       (let open Repr in
+       fundecl
+         ~name:"alloca_fixed_size_array"
+         ~signature:Prototype.(Type_system.unit @-> returning Type_system.bool)
+         ~local:
+           Stack_frame.(
+             arr Type_system.(arr (Size_cst 3L) int64) (I64.v 2L)
+             @+ num Type_system.Int64_num @+ empty)
+         ~body:(fun arr acc (_, ()) ->
+           let* arr0 = get arr I64.zero in
+           let* arr1 = get arr I64.one in
+           let* _ = for_loop 0L 2L (fun i -> set arr0 i i) in
+           let* _ = for_loop 0L 2L (fun i -> set arr1 i i) in
+           let* _ = store acc I64.zero in
+           let* _ =
+             for_loop 0L 2L (fun i ->
+                 for_loop 0L 1L (fun j ->
+                     store acc (I64.add (load acc) (get (get arr j) i))))
+           in
+           I64.eq (load acc) (I64.v 6L)))
+       [()]
+
+let test_bintree () =
+  let module Bintree = struct
+    open Repr
+    open Type_system
+
+    type bintree = { i : int64; a : (bintree ptr, [ `cst ]) arr }
+
+    let r =
+      fix @@ fun self ->
+      empty_rec |+ field "i" int64 |+ field "a" (arr (Size_cst 3L) (ptr self))
+
+    let t = seal r
+
+    let (((), i), a) =
+      projs r (fun { i; a } -> Cons_vec (a, Cons_vec (i, Nil_vec)))
+  end in
+  Alcotest.(check (list bool)) "alloca_fixed_size_array" [true]
+  @@ run_llvm_program1_unsafe
+       ~verbose:true
+       Ctypes.(void @-> returning void)
+       (let open Repr in
+       fundecl
+         ~name:"alloca_fixed_size_array"
+         ~signature:Prototype.(Type_system.unit @-> returning Type_system.unit)
+         ~local:
+           Stack_frame.(
+             strct Bintree.r @+ strct Bintree.r @+ strct Bintree.r @+ empty)
+         ~body:(fun n1 n2 n3 (_, ()) ->
+           let* _ = set (Bintree.a.get n1) (I64.v 0L) n2 in
+           let* _ = set (Bintree.a.get n1) (I64.v 1L) n3 in
+           unit))
+       [()]
 
 let _ = test_alloca_fixed_size_array ()
 
 (* TODO: test linked list, fixed size arrays in structs *)
 
-(* let () =
- *   let open Alcotest in
- *   run
- *     "llvm-codegen"
- *     [ ( "basic",
- *         [ test_case "fact" `Quick test_fact;
- *           test_case "fact" `Quick test_fact;
- *           test_case "nested_switch" `Quick test_nested_switch;
- *           test_case "nested_cond" `Quick test_nested_cond;
- *           test_case "struct_alloca" `Quick test_struct_alloca;
- *           test_case "struct_arg" `Quick test_struct_arg;
- *           test_case "struct_const_init" `Quick test_struct_const_init;
- *           test_case "array_arg" `Quick test_array_arg;
- *           test_case "alloca_struct_array" `Quick test_alloca_struct_array;
- *           test_case
- *             "alloca_fixed_size_array"
- *             `Quick
- *             test_alloca_fixed_size_array ] ) ] *)
+let () =
+  let open Alcotest in
+  run
+    "llvm-codegen"
+    [ ( "basic",
+        [ test_case "fact" `Quick test_fact;
+          test_case "fact" `Quick test_fact;
+          test_case "nested_switch" `Quick test_nested_switch;
+          test_case "nested_cond" `Quick test_nested_cond;
+          test_case "struct_alloca" `Quick test_struct_alloca;
+          test_case "struct_arg" `Quick test_struct_arg;
+          test_case "struct_const_init" `Quick test_struct_const_init;
+          test_case "array_arg" `Quick test_array_arg;
+          test_case "alloca_struct_array" `Quick test_alloca_struct_array;
+          test_case
+            "alloca_fixed_size_array"
+            `Quick
+            test_alloca_fixed_size_array ] ) ]

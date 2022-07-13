@@ -1,7 +1,5 @@
 type _ vec = Nil_vec : unit vec | Cons_vec : 'a * 'b vec -> ('a * 'b) vec
 
-type 'a ptr = Ptr
-
 type arr_kind = [ `unk | `cst ]
 
 type (_, _) arr =
@@ -10,6 +8,8 @@ type (_, _) arr =
 
 module type Type_system_sig = sig
   type (!'a, 'a_typ) typed_term
+
+  type !'a ptr
 
   type 'a numerical = ..
 
@@ -107,9 +107,15 @@ end
 
 module Make_type_system (M : sig
   type (!'a, 'a_typ) typed_term
-end) : Type_system_sig with type ('a, 'b) typed_term = ('a, 'b) M.typed_term =
-struct
+
+  type !'a ptr
+end) :
+  Type_system_sig
+    with type ('a, 'b) typed_term = ('a, 'b) M.typed_term
+     and type 'a ptr = 'a M.ptr = struct
   type ('a, 'b) typed_term = ('a, 'b) M.typed_term
+
+  type 'a ptr = 'a M.ptr
 
   type 'a numerical = ..
 
@@ -327,6 +333,8 @@ module type Stack_frame = sig
 
   type !'a m
 
+  type !'a ptr
+
   type 'a stack_var =
     | SV_unit : unit ptr stack_var
     | SV_bool : bool ptr stack_var
@@ -380,8 +388,12 @@ module type S = sig
 
   type (!'a, 'typ) expr
 
+  type !'a ptr
+
   module Type_system :
-    Type_system_sig with type ('a, 'typ) typed_term = ('a, 'typ) expr k
+    Type_system_sig
+      with type ('a, 'typ) typed_term = ('a, 'typ) expr k
+       and type 'a ptr = 'a ptr
 
   type 'a m := 'a Type_system.m
 
@@ -396,6 +408,7 @@ module type S = sig
        and type ('a, 'b, 'c, 'd) record := ('a, 'b, 'c, 'd) Type_system.record
        and type 'a typ := 'a typ
        and type 'a m := 'a m
+       and type 'a ptr := 'a ptr
 
   module Prototype : Prototype with type 'a typ := 'a typ and type 'a m := 'a m
 
@@ -478,12 +491,15 @@ module Stack_frame (E : sig
   type !'a typ
 
   type !'a m
+
+  type !'a ptr
 end) :
   Stack_frame
     with type 'a numerical := 'a E.numerical
      and type ('a, 'b, 'c, 'd) record := ('a, 'b, 'c, 'd) E.record
      and type !'a typ := 'a E.typ
-     and type 'a m := 'a E.m = struct
+     and type 'a m := 'a E.m
+     and type 'a ptr := 'a E.ptr = struct
   open E
 
   type 'a stack_var =
@@ -539,32 +555,35 @@ end) : Prototype with type 'a typ := 'a E.typ and type 'a m := 'a E.m = struct
 end
 
 (* module OCaml_repr () : sig
- *   type (!'a, _, 'c) expr = 'a
+ *   type (!'a, _) expr = 'a
  *
- *   include
- *     S with type ('a, 'typ, 'c) expr := ('a, 'typ, 'c) expr and type 'a k = 'a
+ *   include S with type ('a, 'typ) expr := ('a, 'typ) expr and type 'a k = 'a
  *
  *   module I32 : Numerical with type t = int32 and type v = int32
  *
  *   module F64 : Numerical with type t = float and type v = float
  * end = struct
- *   module Type_system : Type_system_sig with type ('a, 'b, 'c) typed_term = 'a =
+ *   module Type_system : Type_system_sig with type ('a, 'b) typed_term = 'a =
  *   Make_type_system (struct
- *     type ('a, 'b, 'c) typed_term = 'a
+ *     type ('a, 'b) typed_term = 'a
  *   end)
  *
  *   open Type_system
  *
  *   type !'a k = 'a
  *
- *   type (!'a, _, _) expr = 'a
+ *   type (!'a, _) expr = 'a
  *
- *   type ('a, +'c) m = ('a, 'c) Type_system.m
+ *   type 'a m = 'a Type_system.m
  *
  *   module type Numerical =
  *     Numerical with type 'a typ := 'a typ and type 'a m := 'a m
  *
  *   module Stack_frame = Stack_frame (struct
+ *     type 'a numerical = 'a Type_system.numerical
+ *
+ *     type ('a, 'b, 'c, 'd) record = ('a, 'b, 'c, 'd) Type_system.record
+ *
  *     type nonrec !'a typ = 'a typ
  *
  *     type !'a m = 'a
@@ -605,11 +624,9 @@ end
  *
  *   let ff = bool false
  *
- *   let ( && ) : bool m -> bool m -> bool m =
- *    fun x y -> x && y
+ *   let ( && ) : bool m -> bool m -> bool m = fun x y -> x && y
  *
- *   let ( || ) : bool m -> bool m -> bool m =
- *    fun x y -> x || y
+ *   let ( || ) : bool m -> bool m -> bool m = fun x y -> x || y
  *
  *   module I64 : Numerical with type t = int64 and type v = int64 = struct
  *     type t = int64
@@ -619,6 +636,10 @@ end
  *     let t = Type_system.int64
  *
  *     let v i = i
+ *
+ *     let zero = 0L
+ *
+ *     let one = 1L
  *
  *     let add = Int64.add
  *
@@ -646,6 +667,10 @@ end
  *
  *     let v i = i
  *
+ *     let zero = 0l
+ *
+ *     let one = 1l
+ *
  *     let add = Int32.add
  *
  *     let sub = Int32.sub
@@ -671,6 +696,10 @@ end
  *     let t = Type_system.TNum Float64_num
  *
  *     let v f = f
+ *
+ *     let zero = 0.0
+ *
+ *     let one = 1.0
  *
  *     let add = ( +. )
  *
@@ -860,6 +889,8 @@ module LLVM_repr () : sig
 end = struct
   type ('a, 'typ) expr = { llval : Llvm.llvalue; typewit : 'typ }
 
+  type 'a ptr = Ptr [@@ocaml.warning "-37"]
+
   module LLVM_state : sig
     type ('a, 'typ) llvm = ('a, 'typ) expr
 
@@ -952,7 +983,9 @@ end = struct
 
   module Type_system : sig
     include
-      Type_system_sig with type ('a, 'b) typed_term = ('a, 'b) expr LLVM_state.t
+      Type_system_sig
+        with type ('a, 'b) typed_term = ('a, 'b) expr LLVM_state.t
+         and type 'a ptr = 'a ptr
 
     type !'a numerical +=
       | Int32_num : int32 numerical
@@ -964,6 +997,8 @@ end = struct
   end = struct
     include Make_type_system (struct
       type ('a, 'b) typed_term = ('a, 'b) expr LLVM_state.t
+
+      type nonrec 'a ptr = 'a ptr
     end)
 
     type float32 = Float32 of float [@@unboxed] [@@ocaml.warning "-37"]
@@ -1136,6 +1171,8 @@ end = struct
     type nonrec 'a typ = 'a typ
 
     type nonrec 'a m = 'a m
+
+    type nonrec 'a ptr = 'a ptr
   end)
 
   module Prototype = Prototype (struct

@@ -2,14 +2,12 @@ type _ vec = Nil_vec : unit vec | Cons_vec : 'a * 'b vec -> ('a * 'b) vec
 
 type arr_kind = [ `unk | `cst ]
 
-type (_, _) arr =
-  | Size_unk : ('a, [ `unk ]) arr
-  | Size_cst : int64 -> ('a, [ `cst ]) arr
-
 module type Type_system_sig = sig
   type (!'a, 'a_typ) typed_term
 
   type !'a ptr
+
+  type (!'a, 'c) arr
 
   type 'a numerical = ..
 
@@ -30,7 +28,8 @@ module type Type_system_sig = sig
     | TBool : bool typ
     | TNum : 'a numerical -> 'a typ
     | TPtr : 'a typ -> 'a ptr typ
-    | TArr : ('a, 'c) arr * 'a typ -> ('a, 'c) arr typ
+    | TArr_unk : 'a typ -> ('a, [ `unk ]) arr typ
+    | TArr_cst : 'a typ * int64 -> ('a, [ `cst ]) arr typ
     | TRecord : (_, 'u vec, 'u vec, 't) record -> 't typ
 
   and ('elim, 't_acc, 't, 'u) record =
@@ -87,7 +86,9 @@ module type Type_system_sig = sig
 
   val ptr : 'a typ -> 'a ptr typ
 
-  val arr : ('a, 'c) arr -> 'a typ -> ('a, 'c) arr typ
+  val arr : 'a typ -> ('a, [ `unk ]) arr typ
+
+  val arr_cst : 'a typ -> int64 -> ('a, [ `cst ]) arr typ
 
   val empty_rec : (unit, unit vec, 't vec, 'u) record
 
@@ -109,13 +110,18 @@ module Make_type_system (M : sig
   type (!'a, 'a_typ) typed_term
 
   type !'a ptr
+
+  type (!'a, 'c) arr
 end) :
   Type_system_sig
     with type ('a, 'b) typed_term = ('a, 'b) M.typed_term
-     and type 'a ptr = 'a M.ptr = struct
+     and type 'a ptr = 'a M.ptr
+     and type ('a, 'c) arr = ('a, 'c) M.arr = struct
   type ('a, 'b) typed_term = ('a, 'b) M.typed_term
 
   type 'a ptr = 'a M.ptr
+
+  type ('a, 'c) arr = ('a, 'c) M.arr
 
   type 'a numerical = ..
 
@@ -136,7 +142,8 @@ end) :
     | TBool : bool typ
     | TNum : 'a numerical -> 'a typ
     | TPtr : 'a typ -> 'a ptr typ
-    | TArr : ('a, 'c) arr * 'a typ -> ('a, 'c) arr typ
+    | TArr_unk : 'a typ -> ('a, [ `unk ]) arr typ
+    | TArr_cst : 'a typ * int64 -> ('a, [ `cst ]) arr typ
     | TRecord : (_, 'u vec, 'u vec, 't) record -> 't typ
 
   and ('elim, 't_acc, 't, 'u) record =
@@ -213,10 +220,8 @@ end) :
      | TBool -> Format.pp_print_string fmtr "bool"
      | TNum n -> pp_numerical fmtr n
      | TPtr t -> Format.fprintf fmtr "[%a]" (pp_typ visited) t
-     | TArr (arr, t) -> (
-         match arr with
-         | Size_unk -> Format.fprintf fmtr "<%a>" (pp_typ visited) t
-         | Size_cst sz -> Format.fprintf fmtr "<%a:%Ld>" (pp_typ visited) t sz)
+     | TArr_unk t -> Format.fprintf fmtr "<%a>" (pp_typ visited) t
+     | TArr_cst (t, sz) -> Format.fprintf fmtr "<%a:%Ld>" (pp_typ visited) t sz
      | TRecord descr ->
          let rec loop :
              type x y z.
@@ -257,13 +262,11 @@ end) :
 
   let ptr x = TPtr x
 
-  let arr : type a c. (a, c) arr -> a typ -> (a, c) arr typ =
-   fun arr typ ->
-    (match arr with
-    | Size_unk -> ()
-    | Size_cst sz ->
-        if sz < 0L then invalid_arg "Type_system.vec: negative static size") ;
-    TArr (arr, typ)
+  let arr typ = TArr_unk typ
+
+  let arr_cst ty sz =
+    if sz < 0L then invalid_arg "Type_system.vec: negative static size" ;
+    TArr_cst (ty, sz)
 
   let empty_rec = Record_empty
 
@@ -271,7 +274,7 @@ end) :
    fun name ty ->
     match ty with
     | TPtr (TRecord _) -> Aggregate_ptr_field { name; ty }
-    | TPtr (TArr (Size_cst _, _)) -> Aggregate_ptr_field { name; ty }
+    | TPtr (TArr_cst _) -> Aggregate_ptr_field { name; ty }
     | _ -> Simple_field { name; ty }
 
   let ( |+ ) rest field = Record_field (field, rest)
@@ -335,6 +338,8 @@ module type Stack_frame = sig
 
   type !'a ptr
 
+  type (!'a, 'c) arr
+
   type 'a stack_var =
     | SV_unit : unit ptr stack_var
     | SV_bool : bool ptr stack_var
@@ -390,10 +395,13 @@ module type S = sig
 
   type !'a ptr
 
+  type (!'a, 'c) arr
+
   module Type_system :
     Type_system_sig
       with type ('a, 'typ) typed_term = ('a, 'typ) expr k
        and type 'a ptr = 'a ptr
+       and type ('a, 'c) arr = ('a, 'c) arr
 
   type 'a m := 'a Type_system.m
 
@@ -409,6 +417,7 @@ module type S = sig
        and type 'a typ := 'a typ
        and type 'a m := 'a m
        and type 'a ptr := 'a ptr
+       and type ('a, 'c) arr := ('a, 'c) arr
 
   module Prototype : Prototype with type 'a typ := 'a typ and type 'a m := 'a m
 
@@ -493,13 +502,16 @@ module Stack_frame (E : sig
   type !'a m
 
   type !'a ptr
+
+  type (!'a, 'c) arr
 end) :
   Stack_frame
     with type 'a numerical := 'a E.numerical
      and type ('a, 'b, 'c, 'd) record := ('a, 'b, 'c, 'd) E.record
      and type !'a typ := 'a E.typ
      and type 'a m := 'a E.m
-     and type 'a ptr := 'a E.ptr = struct
+     and type 'a ptr := 'a E.ptr
+     and type ('a, 'c) arr := ('a, 'c) E.arr = struct
   open E
 
   type 'a stack_var =
@@ -554,299 +566,6 @@ end) : Prototype with type 'a typ := 'a E.typ and type 'a m := 'a E.m = struct
   type _ args = [] : unit args | ( :: ) : 'a m * 'd args -> ('a m * 'd) args
 end
 
-(* module OCaml_repr () : sig
- *   type (!'a, _) expr = 'a
- *
- *   include S with type ('a, 'typ) expr := ('a, 'typ) expr and type 'a k = 'a
- *
- *   module I32 : Numerical with type t = int32 and type v = int32
- *
- *   module F64 : Numerical with type t = float and type v = float
- * end = struct
- *   module Type_system : Type_system_sig with type ('a, 'b) typed_term = 'a =
- *   Make_type_system (struct
- *     type ('a, 'b) typed_term = 'a
- *   end)
- *
- *   open Type_system
- *
- *   type !'a k = 'a
- *
- *   type (!'a, _) expr = 'a
- *
- *   type 'a m = 'a Type_system.m
- *
- *   module type Numerical =
- *     Numerical with type 'a typ := 'a typ and type 'a m := 'a m
- *
- *   module Stack_frame = Stack_frame (struct
- *     type 'a numerical = 'a Type_system.numerical
- *
- *     type ('a, 'b, 'c, 'd) record = ('a, 'b, 'c, 'd) Type_system.record
- *
- *     type nonrec !'a typ = 'a typ
- *
- *     type !'a m = 'a
- *   end)
- *
- *   module Prototype = Prototype (struct
- *     type nonrec !'a typ = 'a typ
- *
- *     type nonrec !'a m = 'a
- *   end)
- *
- *   type !'a numerical +=
- *     | Int32_num : int32 numerical
- *     | Float64_num : float numerical
- *     [@@ocaml.warning "-38"]
- *
- *   let () =
- *     register_numerical
- *       (function Ex_num Int32_num -> Some () | _ -> None)
- *       (fun fmtr () -> Format.fprintf fmtr "int32")
- *       `int ;
- *     register_numerical
- *       (function Ex_num Float64_num -> Some () | _ -> None)
- *       (fun fmtr () -> Format.fprintf fmtr "float")
- *       `fp
- *
- *   type ('a, 'ret) fundecl = 'a -> 'ret
- *
- *   let unit = ()
- *
- *   let seq (_m : unit m) (f : unit -> 'b m) = f ()
- *
- *   let ( let* ) m f = f m
- *
- *   let bool b = b
- *
- *   let tt = bool true
- *
- *   let ff = bool false
- *
- *   let ( && ) : bool m -> bool m -> bool m = fun x y -> x && y
- *
- *   let ( || ) : bool m -> bool m -> bool m = fun x y -> x || y
- *
- *   module I64 : Numerical with type t = int64 and type v = int64 = struct
- *     type t = int64
- *
- *     type v = int64
- *
- *     let t = Type_system.int64
- *
- *     let v i = i
- *
- *     let zero = 0L
- *
- *     let one = 1L
- *
- *     let add = Int64.add
- *
- *     let sub = Int64.sub
- *
- *     let mul = Int64.mul
- *
- *     let div = Int64.div
- *
- *     let neg = Int64.neg
- *
- *     let lt = ( < )
- *
- *     let le = ( <= )
- *
- *     let eq = ( = )
- *   end
- *
- *   module I32 : Numerical with type t = int32 and type v = int32 = struct
- *     type t = int32
- *
- *     type v = int32
- *
- *     let t = Type_system.TNum Int32_num
- *
- *     let v i = i
- *
- *     let zero = 0l
- *
- *     let one = 1l
- *
- *     let add = Int32.add
- *
- *     let sub = Int32.sub
- *
- *     let mul = Int32.mul
- *
- *     let div = Int32.div
- *
- *     let neg = Int32.neg
- *
- *     let lt = ( < )
- *
- *     let le = ( <= )
- *
- *     let eq = ( = )
- *   end
- *
- *   module F64 : Numerical with type t = float and type v = float = struct
- *     type t = float
- *
- *     type v = float
- *
- *     let t = Type_system.TNum Float64_num
- *
- *     let v f = f
- *
- *     let zero = 0.0
- *
- *     let one = 1.0
- *
- *     let add = ( +. )
- *
- *     let sub = ( -. )
- *
- *     let mul = ( *. )
- *
- *     let div = ( /. )
- *
- *     let neg = ( ~-. )
- *
- *     let lt = ( < )
- *
- *     let le = ( <= )
- *
- *     let eq = ( = )
- *   end
- *
- *   let store lhs rhs = lhs := rhs
- *
- *   let load ptr = !ptr
- *
- *   let get vec index =
- *     (\* TODO that's clearly not what we want... *\)
- *     ref vec.(Int64.to_int index)
- *
- *   let set vec index elt = vec.(Int64.to_int index) <- elt
- *
- *   let for_ ~init ~pred ~step body =
- *     let i_ref = ref init in
- *     while pred !i_ref do
- *       body !i_ref ;
- *       i_ref := step !i_ref
- *     done
- *
- *   let cond e dispatch = dispatch e
- *
- *   let switch_i64 expr ~cases ~default =
- *     let rec loop i =
- *       if i = Array.length cases then default ()
- *       else
- *         let (v, code) = cases.(i) in
- *         if v = expr then code () else loop (i + 1)
- *     in
- *     loop 0
- *
- *   let rec alloca : type a b. (a, b) Stack_frame.t -> a -> b =
- *    fun frame k ->
- *     match frame with
- *     | Empty -> k
- *     | Cons (Single (_typ, init), rest) ->
- *         let expr = ref init in
- *         alloca rest (k expr)
- *     | Cons (Array (_typ, init, size), rest) ->
- *         let expr = Array.make (Int64.to_int size) init in
- *         alloca rest (k expr)
- *
- *   let fundecl ~name:_ ~signature:_ ~local ~body = alloca local body
- *
- *   let rec call : type s ret. (s, ret) fundecl -> s Prototype.args -> ret =
- *    fun f args ->
- *     match args with
- *     | [] -> f ()
- *     | expr :: args -> call (fun x -> f (expr, x)) args
- *
- *   let array arr = arr
- *
- *   let struct_ :
- *       type intro res u.
- *       (intro, _, res vec, res vec, u) record -> (res vec -> u) -> intro =
- *    fun (record : (intro, _, res vec, res vec, u) record) conv ->
- *     let rec loop :
- *         type intro elim acc.
- *         (intro, elim, acc vec, res vec, u) Type_system.record ->
- *         (acc vec -> res vec) ->
- *         intro =
- *      fun (descr : (intro, elim, acc vec, res vec, u) Type_system.record) k ->
- *       match descr with
- *       | Record_empty -> conv (k Nil_vec)
- *       | Record_field (_field, rest) ->
- *           fun arg -> loop rest (fun x -> k (Cons_vec (arg, x)))
- *       | Record_fix (_id, f) ->
- *           (\* Can only appear at top-level *\)
- *           loop (f (seal descr)) k
- *     in
- *     loop record (fun x -> x)
- *
- *   module Crazy_hack = struct
- *     (\* I just don't understand *\)
- *
- *     type ('a, 'b) u = 'a
- *
- *     type ('a, 't) local_proj = { f : 'c. ('t ref, 'c) u -> ('a ref, 'c) u }
- *
- *     let local_to_proj : ('a, 'b) local_proj -> ('a, 'b) proj = Obj.magic
- *   end
- *
- *   let projs :
- *       type elim res u.
- *       (_, elim, res vec, res vec, u) record -> (u -> res vec) -> elim =
- *    fun (record : (_, elim, res vec, res vec, _) record) conv ->
- *     let rec loop :
- *         type intro elim acc.
- *         (intro, elim, acc vec, res vec, u) Type_system.record ->
- *         (res vec -> acc vec) ->
- *         elim =
- *      fun descr prj ->
- *       match descr with
- *       | Record_empty -> ()
- *       | Record_field (_field, rest) ->
- *           let proj : (_, u) proj =
- *             (\* Without this crazy hack OCaml can't generalize as it should. *\)
- *             Crazy_hack.local_to_proj
- *               { f =
- *                   (fun record ->
- *                     match prj (conv !record) with Cons_vec (x, _) -> ref x)
- *               }
- *           in
- *           let elims =
- *             loop rest (fun vec -> match prj vec with Cons_vec (_, tl) -> tl)
- *           in
- *           ((elims, proj) : elim)
- *       | Record_fix (_id, f) -> loop (f (seal descr)) prj
- *     in
- *     loop record (fun x -> x)
- * end
- *
- * let _fact_example () =
- *   let open OCaml_repr () in
- *   let fact =
- *     fundecl
- *       ~name:"fact"
- *       ~signature:Prototype.(Type_system.int64 @-> returning Type_system.int64)
- *       ~local:Stack_frame.(single Type_system.int64 (I64.v 1L) @+ empty)
- *       ~body:(fun acc (n, ()) ->
- *         let* _ =
- *           for_
- *             ~init:(I64.v 1L)
- *             ~pred:(fun i -> I64.le i n)
- *             ~step:(fun i -> I64.add i (I64.v 1L))
- *             (fun i -> store acc (I64.mul (load acc) i))
- *         in
- *         load acc)
- *   in
- *   let res = call fact Prototype.[I64.v 5L] in
- *   Format.printf "fact 5 = %Ld@." res *)
-
 module SMap = Map.Make (String)
 
 module LLVM_repr () : sig
@@ -890,6 +609,8 @@ end = struct
   type ('a, 'typ) expr = { llval : Llvm.llvalue; typewit : 'typ }
 
   type 'a ptr = Ptr [@@ocaml.warning "-37"]
+
+  type (!'a, 'c) arr = Arr [@@ocaml.warning "-37"]
 
   module LLVM_state : sig
     type ('a, 'typ) llvm = ('a, 'typ) expr
@@ -986,6 +707,7 @@ end = struct
       Type_system_sig
         with type ('a, 'b) typed_term = ('a, 'b) expr LLVM_state.t
          and type 'a ptr = 'a ptr
+         and type ('a, 'c) arr = ('a, 'c) arr
 
     type !'a numerical +=
       | Int32_num : int32 numerical
@@ -999,6 +721,8 @@ end = struct
       type ('a, 'b) typed_term = ('a, 'b) expr LLVM_state.t
 
       type nonrec 'a ptr = 'a ptr
+
+      type nonrec ('a, 'c) arr = ('a, 'c) arr
     end)
 
     type float32 = Float32 of float [@@unboxed] [@@ocaml.warning "-37"]
@@ -1063,17 +787,15 @@ end = struct
        | TPtr typ ->
            let* lltyp = storage_of_type typ in
            return (Llvm.pointer_type lltyp)
-       | TArr (arr, typ) -> (
-           match arr with
-           | Size_unk ->
-               let* lltyp = storage_of_type typ in
-               return (Llvm.pointer_type lltyp)
-           | Size_cst sz when sz >= 0L ->
-               let* lltyp = storage_of_type typ in
-               return (Llvm.array_type lltyp (Int64.to_int sz))
-           | _ ->
-               (* Detected at type construction time *)
-               assert false)
+       | TArr_unk typ ->
+           let* lltyp = storage_of_type typ in
+           return (Llvm.pointer_type lltyp)
+       | TArr_cst (typ, sz) ->
+           if sz < 0L then (* Detected at type construction time *)
+             assert false
+           else
+             let* lltyp = storage_of_type typ in
+             return (Llvm.array_type lltyp (Int64.to_int sz))
        | TRecord record_descr -> (
            match record_descr with
            | Record_fix (id, _) -> (
@@ -1100,7 +822,7 @@ end = struct
        | Int64_num -> return (int64_t context)
        | Int32_num -> return (int32_t context)
        | Float64_num -> return (float64_t context)
-       | _ -> assert false
+       | _ -> failwith "extensible type definitions not implemented yet"
 
     and struct_of_tuple :
         type a b c u. (a, b, c, u) Type_system.record -> _ -> t LLVM_state.t =
@@ -1135,8 +857,8 @@ end = struct
       | TBool -> storage_of_type ty
       | TNum _ -> storage_of_type ty
       | TPtr _ -> storage_of_type ty
-      | TArr (Size_unk, _) -> storage_of_type ty
-      | TArr (Size_cst _, _) -> storage_of_type (Type_system.TPtr ty)
+      | TArr_unk _ -> storage_of_type ty
+      | TArr_cst _ -> storage_of_type (Type_system.TPtr ty)
       | TRecord _ -> storage_of_type (Type_system.TPtr ty)
   end
 
@@ -1173,6 +895,8 @@ end = struct
     type nonrec 'a m = 'a m
 
     type nonrec 'a ptr = 'a ptr
+
+    type nonrec ('a, 'c) arr = ('a, 'c) arr
   end)
 
   module Prototype = Prototype (struct
@@ -1430,10 +1154,10 @@ end = struct
     in
     let fty = field_type field in
     match fty with
-    | TUnit | TBool | TNum _ | TPtr _ | TArr (Size_unk, _) ->
+    | TUnit | TBool | TNum _ | TPtr _ | TArr_unk _ ->
         let v = Llvm.build_load field_addr "record_get_load" builder in
         llreturn v fty
-    | TArr (Size_cst _, _) | TRecord _ -> llreturn field_addr fty
+    | TArr_cst _ | TRecord _ -> llreturn field_addr fty
 
   let set_field : type a u. (a, u) field -> int -> u m -> a m -> unit m =
    fun field index record elt ->
@@ -1451,13 +1175,13 @@ end = struct
     in
     let fty = field_type field in
     match fty with
-    | TUnit | TBool | TNum _ | TPtr _ | TArr (Size_unk, _) ->
+    | TUnit | TBool | TNum _ | TPtr _ | TArr_unk _ ->
         let _ = Llvm.build_store (llval elt) field_addr builder in
         unit
-    | TArr (Size_cst sz, _) ->
+    | TArr_cst (_, sz) ->
         let () =
           match typeof elt with
-          | TArr (Size_cst sz', _) as eltty ->
+          | TArr_cst (_, sz') as eltty ->
               if sz <> sz' then
                 Format.kasprintf
                   invalid_arg
@@ -1563,10 +1287,10 @@ end = struct
         let s = Llvm.build_load (llval ptr) "store_record_load" builder in
         let _ = Llvm.build_store s (llval ptr) builder in
         unit
-    | TPtr (TArr (Size_cst sz, _)) as pty ->
+    | TPtr (TArr_cst (_, sz)) as pty ->
         let () =
           match typeof v with
-          | TArr (Size_cst sz', _) as eltty ->
+          | TArr_cst (_, sz') as eltty ->
               if sz <> sz' then
                 Format.kasprintf
                   invalid_arg
@@ -1592,7 +1316,7 @@ end = struct
     let* ptr in
     match typeof ptr with
     | TPtr (TRecord _ as typ) -> llreturn (llval ptr) typ
-    | TPtr (TArr (Size_cst _, _) as typ) -> llreturn (llval ptr) typ
+    | TPtr (TArr_cst _ as typ) -> llreturn (llval ptr) typ
     | TPtr typ -> llreturn (Llvm.build_load (llval ptr) "load_tmp" builder) typ
     | TNum _ | TRecord _ -> assert false
 
@@ -1602,31 +1326,34 @@ end = struct
     let* context in
     let* arr in
     let* i in
+    let k : type a. Llvm.llvalue -> a typ -> a m =
+     fun addr elt_ty ->
+      match elt_ty with
+      | TRecord _ ->
+          (* A value of [struct] type is mapped in LLVM to a pointer to that structure.
+                 [addr] has LLVM type `t*` where [t] is the type of the struct. *)
+          llreturn addr elt_ty
+      | TArr_cst _ ->
+          (* Fixed-size arrays are mapped in LLVM to a pointer to that array.
+                 The returned value has type [array t n].
+                 [addr] has LLVM type `[t x n]*` where [t] is the type of elements of
+                 the fixed-size array. *)
+          llreturn addr elt_ty
+      | _ ->
+          let elt = Llvm.build_load addr "get_tmp" builder in
+          llreturn elt elt_ty
+    in
     match (typeof arr, typeof i) with
-    | (TArr (sz, elt_ty), TNum Int64_num) -> (
+    | (TArr_unk elt_ty, TNum Int64_num) ->
+        let addr = Llvm.build_gep (llval arr) [| llval i |] "get_gep" builder in
+        k addr elt_ty
+    | (TArr_cst (elt_ty, _sz), TNum Int64_num) ->
+        let zero = Llvm.const_int (LLVM_type.int64_t context) 0 in
         let addr =
-          match sz with
-          | Size_unk ->
-              Llvm.build_gep (llval arr) [| llval i |] "get_gep" builder
-          | Size_cst _ ->
-              let zero = Llvm.const_int (LLVM_type.int64_t context) 0 in
-              Llvm.build_gep (llval arr) [| zero; llval i |] "get_gep" builder
+          Llvm.build_gep (llval arr) [| zero; llval i |] "get_gep" builder
         in
-        match elt_ty with
-        | TRecord _ ->
-            (* A value of [struct] type is mapped in LLVM to a pointer to that structure.
-               [addr] has LLVM type `t*` where [t] is the type of the struct. *)
-            llreturn addr elt_ty
-        | TArr (Size_cst _size, _) ->
-            (* Fixed-size arrays are mapped in LLVM to a pointer to that array.
-               The returned value has type [array t n].
-               [addr] has LLVM type `[t x n]*` where [t] is the type of elements of
-               the fixed-size array. *)
-            llreturn addr elt_ty
-        | _ ->
-            let elt = Llvm.build_load addr "get_tmp" builder in
-            llreturn elt elt_ty)
-    | (TArr _, _) | (TNum _, _) | (TRecord _, _) -> assert false
+        k addr elt_ty
+    | _ -> assert false
 
   let set (type a c) (arr : (a, c) arr m) (i : int64 m) (e : a m) : unit m =
     let open LLVM_state in
@@ -1636,7 +1363,7 @@ end = struct
     let* e in
     match typeof arr with
     | TNum _ | TRecord _ -> assert false
-    | TArr (Size_unk, elt_ty) as aty ->
+    | TArr_unk elt_ty as aty ->
         (let addr =
            Llvm.build_gep (llval arr) [| llval i |] "set_gep" builder
          in
@@ -1644,10 +1371,10 @@ end = struct
          | TRecord _ ->
              let strct = Llvm.build_load (llval e) "set_load_strct" builder in
              ignore (Llvm.build_store strct addr builder)
-         | TArr (Size_cst sz, _) ->
+         | TArr_cst (_, sz) ->
              let () =
                match typeof e with
-               | TArr (Size_cst sz', _) as ety ->
+               | TArr_cst (_, sz') as ety ->
                    if sz <> sz' then
                      Format.kasprintf
                        invalid_arg
@@ -1665,7 +1392,7 @@ end = struct
              ignore (Llvm.build_store strct addr builder)
          | _ -> ignore (Llvm.build_store (llval e) addr builder)) ;
         unit
-    | TArr (Size_cst _, elt_ty) as aty ->
+    | TArr_cst (elt_ty, _sz) as aty ->
         (* [arr] is a pointer to a fixed-size array (LLVM type `[t x n]*`). *)
         let* context in
         let zero = Llvm.const_int (LLVM_type.int64_t context) 0 in
@@ -1676,10 +1403,10 @@ end = struct
         | TRecord _ ->
             let strct = Llvm.build_load (llval e) "set_load_strct" builder in
             ignore (Llvm.build_store strct addr builder)
-        | TArr (Size_cst sz, _) ->
+        | TArr_cst (_, sz) ->
             let () =
               match typeof e with
-              | TArr (Size_cst sz', _) as ety ->
+              | TArr_cst (_, sz') as ety ->
                   if sz <> sz' then
                     Format.kasprintf
                       invalid_arg
@@ -1707,13 +1434,13 @@ end = struct
     let* e in
     match typeof arr with
     | TNum _ | TRecord _ -> assert false
-    | TArr (Size_unk, elt_ty) ->
+    | TArr_unk elt_ty ->
         (let addr =
            Llvm.build_gep (llval arr) [| llval i |] "set_gep" builder
          in
          match elt_ty with
          | TPtr (TRecord _) -> ignore (Llvm.build_store (llval e) addr builder)
-         | TPtr (TArr (Size_cst _, _)) ->
+         | TPtr (TArr_cst _) ->
              (* e is a pointer to a fixed-size array (LLVM type `[t x n]*`). *)
              ignore (Llvm.build_store (llval e) addr builder)
          | _ ->
@@ -1721,7 +1448,7 @@ end = struct
                "setaddr: element type is not pointer to a struct or to a \
                 fixed-sized array") ;
         unit
-    | TArr (Size_cst _, elt_ty) ->
+    | TArr_cst (elt_ty, _) ->
         (* [arr] is a pointer to a fixed-size array (LLVM type `[t x n]*`). *)
         let* context in
         let zero = Llvm.const_int (LLVM_type.int64_t context) 0 in
@@ -1730,7 +1457,7 @@ end = struct
         in
         (match elt_ty with
         | TPtr (TRecord _) -> ignore (Llvm.build_store (llval e) addr builder)
-        | TPtr (TArr (Size_cst _, _)) ->
+        | TPtr (TArr_cst _) ->
             (* e is a pointer to a fixed-size array (LLVM type `[t x n]*`). *)
             ignore (Llvm.build_store (llval e) addr builder)
         | _ ->
@@ -1968,10 +1695,10 @@ end = struct
           let llalloca =
             Llvm.build_array_alloca lltyp (llval size) "alloca_array" builder
           in
-          let arr = llreturn llalloca (arr Size_unk ty) in
+          let arr = llreturn llalloca (arr ty) in
           alloca rest (k arr) s
       | Cons (SV_arr_cst (ty, size), rest) ->
-          let arr_ty = Type_system.arr (Size_cst size) ty in
+          let arr_ty = Type_system.arr_cst ty size in
           let* lltyp = LLVM_type.storage_of_type arr_ty in
           let llalloca = Llvm.build_alloca lltyp "alloca_cst_array" builder in
           let arr = llreturn llalloca arr_ty in
@@ -2097,3 +1824,318 @@ module Externals = struct
 
   external instralloc : unit -> unit = "instralloc"
 end
+
+(* module OCaml_repr () : sig
+ *   type (!'a, _) expr = 'a
+ *
+ *   type !'a ptr = 'a option ref
+ *
+ *   type ('a, 'c) arr = 'a array
+ *
+ *   include
+ *     S
+ *       with type ('a, 'typ) expr := ('a, 'typ) expr
+ *        and type 'a k = 'a
+ *        and type 'a ptr := 'a ptr
+ *        and type ('a, 'c) arr := ('a, 'c) arr
+ *
+ *   module I32 : Numerical with type t = int32 and type v = int32
+ *
+ *   module F64 : Numerical with type t = float and type v = float
+ * end = struct
+ *   type !'a k = 'a
+ *
+ *   type (!'a, _) expr = 'a
+ *
+ *   type !'a ptr = 'a option ref
+ *
+ *   type ('a, 'c) arr = 'a array
+ *
+ *   module Type_system : Type_system_sig with type ('a, 'b) typed_term = 'a =
+ *   Make_type_system (struct
+ *     type ('a, 'b) typed_term = 'a
+ *
+ *     type !'a ptr = 'a option ref
+ *
+ *     type ('a, 'c) arr = 'a array
+ *   end)
+ *
+ *   open Type_system
+ *
+ *   type 'a m = 'a Type_system.m
+ *
+ *   module type Numerical =
+ *     Numerical with type 'a typ := 'a typ and type 'a m := 'a m
+ *
+ *   module Stack_frame = Stack_frame (struct
+ *     type 'a numerical = 'a Type_system.numerical
+ *
+ *     type ('a, 'b, 'c, 'd) record = ('a, 'b, 'c, 'd) Type_system.record
+ *
+ *     type nonrec !'a typ = 'a typ
+ *
+ *     type !'a m = 'a
+ *
+ *     type nonrec 'a ptr = 'a ptr
+ *
+ *     type nonrec ('a, 'c) arr = ('a, 'c) arr
+ *   end)
+ *
+ *   module Prototype = Prototype (struct
+ *     type nonrec !'a typ = 'a typ
+ *
+ *     type nonrec !'a m = 'a
+ *   end)
+ *
+ *   type !'a numerical +=
+ *     | Int32_num : int32 numerical
+ *     | Float64_num : float numerical
+ *     [@@ocaml.warning "-38"]
+ *
+ *   let () =
+ *     register_numerical
+ *       (function Ex_num Int32_num -> Some () | _ -> None)
+ *       (fun fmtr () -> Format.fprintf fmtr "int32")
+ *       `int ;
+ *     register_numerical
+ *       (function Ex_num Float64_num -> Some () | _ -> None)
+ *       (fun fmtr () -> Format.fprintf fmtr "float")
+ *       `fp
+ *
+ *   type ('a, 'ret) fundecl = 'a -> 'ret
+ *
+ *   let unit = ()
+ *
+ *   let seq (_m : unit m) (f : unit -> 'b m) = f ()
+ *
+ *   let ( let* ) m f = f m
+ *
+ *   let bool b = b
+ *
+ *   let tt = bool true
+ *
+ *   let ff = bool false
+ *
+ *   let ( && ) : bool m -> bool m -> bool m = fun x y -> x && y
+ *
+ *   let ( || ) : bool m -> bool m -> bool m = fun x y -> x || y
+ *
+ *   module I64 : Numerical with type t = int64 and type v = int64 = struct
+ *     type t = int64
+ *
+ *     type v = int64
+ *
+ *     let t = Type_system.int64
+ *
+ *     let v i = i
+ *
+ *     let zero = 0L
+ *
+ *     let one = 1L
+ *
+ *     let add = Int64.add
+ *
+ *     let sub = Int64.sub
+ *
+ *     let mul = Int64.mul
+ *
+ *     let div = Int64.div
+ *
+ *     let neg = Int64.neg
+ *
+ *     let lt = ( < )
+ *
+ *     let le = ( <= )
+ *
+ *     let eq = ( = )
+ *   end
+ *
+ *   module I32 : Numerical with type t = int32 and type v = int32 = struct
+ *     type t = int32
+ *
+ *     type v = int32
+ *
+ *     let t = Type_system.TNum Int32_num
+ *
+ *     let v i = i
+ *
+ *     let zero = 0l
+ *
+ *     let one = 1l
+ *
+ *     let add = Int32.add
+ *
+ *     let sub = Int32.sub
+ *
+ *     let mul = Int32.mul
+ *
+ *     let div = Int32.div
+ *
+ *     let neg = Int32.neg
+ *
+ *     let lt = ( < )
+ *
+ *     let le = ( <= )
+ *
+ *     let eq = ( = )
+ *   end
+ *
+ *   module F64 : Numerical with type t = float and type v = float = struct
+ *     type t = float
+ *
+ *     type v = float
+ *
+ *     let t = Type_system.TNum Float64_num
+ *
+ *     let v f = f
+ *
+ *     let zero = 0.0
+ *
+ *     let one = 1.0
+ *
+ *     let add = ( +. )
+ *
+ *     let sub = ( -. )
+ *
+ *     let mul = ( *. )
+ *
+ *     let div = ( /. )
+ *
+ *     let neg = ( ~-. )
+ *
+ *     let lt = ( < )
+ *
+ *     let le = ( <= )
+ *
+ *     let eq = ( = )
+ *   end
+ *
+ *   let store lhs rhs = lhs := rhs
+ *
+ *   let load ptr = !ptr
+ *
+ *   let get vec index =
+ *     (\* TODO that's clearly not what we want... *\)
+ *     ref vec.(Int64.to_int index)
+ *
+ *   let set vec index elt = vec.(Int64.to_int index) <- elt
+ *
+ *   let for_ ~init ~pred ~step body =
+ *     let i_ref = ref init in
+ *     while pred !i_ref do
+ *       body !i_ref ;
+ *       i_ref := step !i_ref
+ *     done
+ *
+ *   let cond e dispatch = dispatch e
+ *
+ *   let switch_i64 expr ~cases ~default =
+ *     let rec loop i =
+ *       if i = Array.length cases then default ()
+ *       else
+ *         let (v, code) = cases.(i) in
+ *         if v = expr then code () else loop (i + 1)
+ *     in
+ *     loop 0
+ *
+ *   let rec alloca : type a b. (a, b) Stack_frame.t -> a -> b =
+ *    fun frame k ->
+ *     match frame with
+ *     | Empty -> k
+ *     | Cons (SV_unit, rest) -> alloca rest (ref (Some ()))
+ *     | Cons (SV_bool, rest) -> alloca rest (ref (Some false))
+ *     | Cons (SV_num n, rest) -> alloca rest (ref None)
+ *     | Cons (SV_ptr _, rest) -> alloca rest (ref (Some (ref None)))
+ *     | Cons (SV_arr (_ty, sz), rest) -> alloca rest (ref Some (ref [||]))
+ *     | Cons (SV_arr_cst (ty, sz), rest) -> assert false
+ *     | Cons (SV_strct r, rest) -> assert false
+ *
+ *   let fundecl ~name:_ ~signature:_ ~local ~body = alloca local body
+ *
+ *   let rec call : type s ret. (s, ret) fundecl -> s Prototype.args -> ret =
+ *    fun f args ->
+ *     match args with
+ *     | [] -> f ()
+ *     | expr :: args -> call (fun x -> f (expr, x)) args
+ *
+ *   let array arr = arr
+ *
+ *   let struct_ :
+ *       type intro res u.
+ *       (intro, _, res vec, res vec, u) record -> (res vec -> u) -> intro =
+ *    fun (record : (intro, _, res vec, res vec, u) record) conv ->
+ *     let rec loop :
+ *         type intro elim acc.
+ *         (intro, elim, acc vec, res vec, u) Type_system.record ->
+ *         (acc vec -> res vec) ->
+ *         intro =
+ *      fun (descr : (intro, elim, acc vec, res vec, u) Type_system.record) k ->
+ *       match descr with
+ *       | Record_empty -> conv (k Nil_vec)
+ *       | Record_field (_field, rest) ->
+ *           fun arg -> loop rest (fun x -> k (Cons_vec (arg, x)))
+ *       | Record_fix (_id, f) ->
+ *           (\* Can only appear at top-level *\)
+ *           loop (f (seal descr)) k
+ *     in
+ *     loop record (fun x -> x)
+ *
+ *   module Crazy_hack = struct
+ *     (\* I just don't understand *\)
+ *
+ *     type ('a, 'b) u = 'a
+ *
+ *     type ('a, 't) local_proj = { f : 'c. ('t ref, 'c) u -> ('a ref, 'c) u }
+ *
+ *     let local_to_proj : ('a, 'b) local_proj -> ('a, 'b) proj = Obj.magic
+ *   end
+ *
+ *   let projs :
+ *       type elim res u.
+ *       (_, elim, res vec, res vec, u) record -> (u -> res vec) -> elim =
+ *    fun (record : (_, elim, res vec, res vec, _) record) conv ->
+ *     let rec loop :
+ *         type intro elim acc.
+ *         (intro, elim, acc vec, res vec, u) Type_system.record ->
+ *         (res vec -> acc vec) ->
+ *         elim =
+ *      fun descr prj ->
+ *       match descr with
+ *       | Record_empty -> ()
+ *       | Record_field (_field, rest) ->
+ *           let proj : (_, u) proj =
+ *             (\* Without this crazy hack OCaml can't generalize as it should. *\)
+ *             Crazy_hack.local_to_proj
+ *               { f =
+ *                   (fun record ->
+ *                     match prj (conv !record) with Cons_vec (x, _) -> ref x)
+ *               }
+ *           in
+ *           let elims =
+ *             loop rest (fun vec -> match prj vec with Cons_vec (_, tl) -> tl)
+ *           in
+ *           ((elims, proj) : elim)
+ *       | Record_fix (_id, f) -> loop (f (seal descr)) prj
+ *     in
+ *     loop record (fun x -> x)
+ * end
+ *
+ * let _fact_example () =
+ *   let open OCaml_repr () in
+ *   let fact =
+ *     fundecl
+ *       ~name:"fact"
+ *       ~signature:Prototype.(Type_system.int64 @-> returning Type_system.int64)
+ *       ~local:Stack_frame.(single Type_system.int64 (I64.v 1L) @+ empty)
+ *       ~body:(fun acc (n, ()) ->
+ *         let* _ =
+ *           for_
+ *             ~init:(I64.v 1L)
+ *             ~pred:(fun i -> I64.le i n)
+ *             ~step:(fun i -> I64.add i (I64.v 1L))
+ *             (fun i -> store acc (I64.mul (load acc) i))
+ *         in
+ *         load acc)
+ *   in
+ *   let res = call fact Prototype.[I64.v 5L] in
+ *   Format.printf "fact 5 = %Ld@." res *)

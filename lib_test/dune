@@ -1,5 +1,5 @@
 (test
  (name test)
- (libraries suplex alcotest)
+ (libraries suplex alcotest dynlink)
  (modes native)
  (ocamlopt_flags (-g -rectypes)))

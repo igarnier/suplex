@@ -283,8 +283,7 @@ let test_array_arg () =
        fundecl
          ~name:"array_arg"
          ~signature:
-           Prototype.(
-             Type_system.(arr Size_unk int64) @-> returning Type_system.int64)
+           Prototype.(Type_system.(arr int64) @-> returning Type_system.int64)
          ~local:Stack_frame.(num Type_system.Int64_num @+ empty)
          ~body:(fun _self acc (x, ()) ->
            let* _ = store acc I64.zero in
@@ -393,7 +392,7 @@ let test_alloca_fixed_size_array () =
          ~signature:Prototype.(Type_system.unit @-> returning Type_system.bool)
          ~local:
            Stack_frame.(
-             arr Type_system.(arr (Size_cst 3L) int64) (I64.v 2L)
+             arr Type_system.(arr_cst int64 3L) (I64.v 2L)
              @+ num Type_system.Int64_num @+ empty)
          ~body:(fun _self arr acc (_, ()) ->
            let* arr0 = get arr I64.zero in
@@ -417,7 +416,7 @@ module Bintree = struct
 
   let r =
     fix @@ fun self ->
-    empty_rec |+ field "i" int64 |+ field "a" (arr (Size_cst 2L) (ptr self))
+    empty_rec |+ field "i" int64 |+ field "a" (arr_cst (ptr self) 2L)
 
   let t = seal r
 
@@ -594,8 +593,8 @@ let test_store_cst_arr () =
          ~local:
            Stack_frame.(
              arr_cst Type_system.int64 2L
-             @+ arr_cst Type_system.(ptr (arr (Size_cst 2L) int64)) 1L
-             @+ ptr Type_system.(arr (Size_cst 2L) int64)
+             @+ arr_cst Type_system.(ptr (arr_cst int64 2L)) 1L
+             @+ ptr Type_system.(arr_cst int64 2L)
              @+ empty)
          ~body:(fun _self arr ptr_arr ptrptr (_, ()) ->
            let* _ = ptr_arr.&[I64.v 0L] <- arr in
@@ -620,8 +619,8 @@ let test_set_cst_arr () =
          ~local:
            Stack_frame.(
              arr_cst Type_system.int64 2L
-             @+ arr Type_system.(arr (Size_cst 2L) int64) (I64.v 3L)
-             @+ arr_cst Type_system.(arr (Size_cst 2L) int64) 3L
+             @+ arr Type_system.(arr_cst int64 2L) (I64.v 3L)
+             @+ arr_cst Type_system.(arr_cst int64 2L) 3L
              @+ num Type_system.Int64_num @+ empty)
          ~body:(fun _self arr_cst arr_cst_arr arr_cst_arr_cst acc (_, ()) ->
            for_loop 0L 1L (fun i -> arr_cst.%[i] <- I64.(add i (v 42L)))
@@ -679,7 +678,7 @@ let test_setaddr_array_in_array () =
          ~local:
            Stack_frame.(
              arr_cst Type_system.int64 2L
-             @+ arr Type_system.(ptr (arr (Size_cst 2L) int64)) (I64.v 1L)
+             @+ arr Type_system.(ptr (arr_cst int64 2L)) (I64.v 1L)
              @+ empty)
          ~body:(fun _self arr arr_arr (_, ()) ->
            let* _ = arr.%[I64.v 0L] <- I64.v 1L in
@@ -707,7 +706,7 @@ let test_record_copy () =
       empty_rec |+ field "unit" unit |+ field "bool" bool
       |+ field "ptr" (ptr bool)
       |+ field "int" int64 |+ field "strct" Int64_pair.t
-      |+ field "arr" (arr (Size_cst 2L) int64)
+      |+ field "arr" (arr_cst int64 2L)
 
     (* let t = seal r *)
 
@@ -760,6 +759,14 @@ let test_record_copy () =
            && check Int64_pair.eq R.strct
            && check array_eq R.arr))
        [()]
+
+let () =
+  let ty = Ctypes.(void @-> returning int64_t) in
+  let _lib =
+    Dl.dlopen ~filename:"/tmp/libtest" ~flags:Dl.[RTLD_NOW; RTLD_GLOBAL]
+  in
+  let f = Foreign.foreign "f" ty in
+  Format.printf "foreign function called with result %Ld@." (f ())
 
 let () =
   let open Alcotest in

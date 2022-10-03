@@ -750,14 +750,12 @@ end = struct
 
   open Type_system
 
-  type nonrec !'a typ = 'a typ
-
   type 'a k = 'a LLVM_state.t
 
   module LLVM_type = struct
     type t = Llvm.lltype
 
-    let _void ctxt = Llvm.void_type ctxt
+    let _void_t ctxt = Llvm.void_type ctxt
 
     let int64_t ctxt = Llvm.i64_type ctxt
 
@@ -782,7 +780,7 @@ end = struct
        let* context in
        match typ with
        | TNum typ -> of_numerical typ
-       | TUnit -> return (int8_t context)
+       | TUnit -> return (bool_t context)
        | TBool -> return (bool_t context)
        | TPtr typ ->
            let* lltyp = storage_of_type typ in
@@ -913,7 +911,7 @@ end = struct
   let unit : unit m =
     let open LLVM_state in
     let* context in
-    llreturn (Llvm.const_int (LLVM_type.int8_t context) 0) Type_system.unit
+    llreturn (Llvm.const_int (LLVM_type.bool_t context) 0) Type_system.unit
 
   let tt =
     let open LLVM_state in
@@ -1824,6 +1822,160 @@ module Externals = struct
 
   external instralloc : unit -> unit = "instralloc"
 end
+
+(* module C_repr () = struct
+ *   type (!'a, _) expr = Exp of Cabs.expression
+ *
+ *   type !'a ptr = Ptr
+ *
+ *   type (!'a, 'c) arr = Arr
+ *
+ *   module C_state = struct
+ *     type state =
+ *       { mutable typedefs : Cabs.definition list;
+ *         mutable fundefs : Cabs.definition list
+ *       }
+ *
+ *     type 'a t = state -> 'a
+ *   end
+ *
+ *   module Type_system = Make_type_system (struct
+ *     type ('a, 'b) typed_term = ('a, 'b) expr
+ *
+ *     type nonrec 'a ptr = 'a ptr
+ *
+ *     type nonrec ('a, 'c) arr = ('a, 'c) arr
+ *   end)
+ *
+ *   open Type_system
+ *
+ *   module C_type = struct
+ *     let _ =
+ *       let v_decl =
+ *         Cabs.DECDEF
+ *           ( Cabs.INT (Cabs.NO_SIZE, Cabs.NO_SIGN),
+ *             Cabs.NO_STORAGE,
+ *             [ ( "v",
+ *                 Cabs.PTR (Cabs.INT (Cabs.NO_SIZE, Cabs.NO_SIGN)),
+ *                 [],
+ *                 Cabs.NOTHING ) ] )
+ *       in
+ *       let u_decl =
+ *         Cabs.DECDEF
+ *           ( Cabs.FLOAT false,
+ *             Cabs.NO_STORAGE,
+ *             [("u", Cabs.PTR (Cabs.FLOAT false), [], Cabs.NOTHING)] )
+ *       in
+ *       let body =
+ *         Cabs.SEQUENCE
+ *           ( Cabs.COMPUTATION
+ *               (Cabs.BINARY
+ *                  ( Cabs.ASSIGN,
+ *                    Cabs.UNARY (Cabs.MEMOF, Cabs.VARIABLE "v"),
+ *                    Cabs.CONSTANT (Cabs.CONST_INT "0") )),
+ *             Cabs.RETURN (Cabs.CONSTANT (Cabs.CONST_INT "52")) )
+ *       in
+ *       Cabs.FUNDEF
+ *         ( ( Cabs.INT (Cabs.NO_SIZE, Cabs.NO_SIGN),
+ *             Cabs.NO_STORAGE,
+ *             ( "f",
+ *               Cabs.PROTO
+ *                 ( Cabs.INT (Cabs.NO_SIZE, Cabs.NO_SIGN),
+ *                   [ ( Cabs.CHAR Cabs.NO_SIGN,
+ *                       Cabs.NO_STORAGE,
+ *                       ("s", Cabs.PTR (Cabs.CHAR Cabs.NO_SIGN), [], Cabs.NOTHING)
+ *                     ) ],
+ *                   false ),
+ *               [],
+ *               Cabs.NOTHING ) ),
+ *           ([v_decl; u_decl], body) )
+ *
+ *     let rec storage_of_type : type a. a Type_system.typ -> t C_state.t =
+ *       fun (type a) (typ : a Type_system.typ) : t LLVM_state.t ->
+ *        let open LLVM_state in
+ *        let* context in
+ *        match typ with
+ *        | TNum typ -> of_numerical typ
+ *        | TUnit -> return (bool_t context)
+ *        | TBool -> return (bool_t context)
+ *        | TPtr typ ->
+ *            let* lltyp = storage_of_type typ in
+ *            return (Llvm.pointer_type lltyp)
+ *        | TArr_unk typ ->
+ *            let* lltyp = storage_of_type typ in
+ *            return (Llvm.pointer_type lltyp)
+ *        | TArr_cst (typ, sz) ->
+ *            if sz < 0L then (\* Detected at type construction time *\)
+ *              assert false
+ *            else
+ *              let* lltyp = storage_of_type typ in
+ *              return (Llvm.array_type lltyp (Int64.to_int sz))
+ *        | TRecord record_descr -> (
+ *            match record_descr with
+ *            | Record_fix (id, _) -> (
+ *                match Hashtbl.find_opt struct_table id with
+ *                | Some ty -> return ty
+ *                | _ ->
+ *                    let name = Printf.sprintf "struct_%d" id in
+ *                    let named_strct = Llvm.named_struct_type context name in
+ *                    Hashtbl.add struct_table id named_strct ;
+ *                    struct_of_tuple record_descr (fun fields ->
+ *                        let packed = false in
+ *                        Llvm.struct_set_body named_strct fields packed ;
+ *                        return named_strct))
+ *            | _ ->
+ *                struct_of_tuple record_descr (fun fields ->
+ *                    return (Llvm.struct_type context fields)))
+ *
+ *     and of_numerical : type a. a Type_system.numerical -> t LLVM_state.t =
+ *       fun (type a) (typ : a Type_system.numerical) : Llvm.lltype LLVM_state.t ->
+ *        let open LLVM_state in
+ *        let open Type_system in
+ *        let* context in
+ *        match typ with
+ *        | Int64_num -> return (int64_t context)
+ *        | Int32_num -> return (int32_t context)
+ *        | Float64_num -> return (float64_t context)
+ *        | _ -> failwith "extensible type definitions not implemented yet"
+ *
+ *     and struct_of_tuple :
+ *         type a b c u. (a, b, c, u) Type_system.record -> _ -> t LLVM_state.t =
+ *      fun descr k ->
+ *       let open LLVM_state in
+ *       let rec loop :
+ *           type a b c u.
+ *           (a, b, c, u) Type_system.record ->
+ *           Llvm.lltype list ->
+ *           (Llvm.lltype array -> Llvm.lltype k) ->
+ *           Llvm.lltype LLVM_state.t =
+ *        fun descr acc k ->
+ *         match descr with
+ *         | Type_system.Record_empty ->
+ *             let fields = List.rev acc in
+ *             k (Array.of_list fields)
+ *         | Type_system.Record_field (field, rest) ->
+ *             let* typ = storage_of_type (field_type field) in
+ *             loop rest (typ :: acc) k
+ *         | Type_system.Record_fix (id, f) ->
+ *             let unfolded = f (seal descr) in
+ *             assert (acc = []) ;
+ *             assert (Hashtbl.mem struct_table id) ;
+ *             loop unfolded acc k
+ *       in
+ *       loop descr [] k
+ *
+ *     let surface_type : type a. a Type_system.typ -> t LLVM_state.t =
+ *      fun ty ->
+ *       match ty with
+ *       | TUnit -> storage_of_type ty
+ *       | TBool -> storage_of_type ty
+ *       | TNum _ -> storage_of_type ty
+ *       | TPtr _ -> storage_of_type ty
+ *       | TArr_unk _ -> storage_of_type ty
+ *       | TArr_cst _ -> storage_of_type (Type_system.TPtr ty)
+ *       | TRecord _ -> storage_of_type (Type_system.TPtr ty)
+ *   end
+ * end *)
 
 (* module OCaml_repr () : sig
  *   type (!'a, _) expr = 'a

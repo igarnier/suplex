@@ -103,6 +103,7 @@ let test_fact () =
     "iterative_factorial"
     (List.map fact_oracle [1L; 2L; 3L; 4L; 5L])
   @@ run_llvm_program1
+       ~verbose:true
        Ctypes.(int64_t @-> returning int64_t)
        (let open Repr in
        fundecl
@@ -760,13 +761,13 @@ let test_record_copy () =
            && check array_eq R.arr))
        [()]
 
-let () =
-  let ty = Ctypes.(void @-> returning int64_t) in
-  let _lib =
-    Dl.dlopen ~filename:"/tmp/libtest" ~flags:Dl.[RTLD_NOW; RTLD_GLOBAL]
-  in
-  let f = Foreign.foreign "f" ty in
-  Format.printf "foreign function called with result %Ld@." (f ())
+(* let () =
+ *   let ty = Ctypes.(void @-> returning int64_t) in
+ *   let _lib =
+ *     Dl.dlopen ~filename:"/tmp/libtest" ~flags:Dl.[RTLD_NOW; RTLD_GLOBAL]
+ *   in
+ *   let f = Foreign.foreign "f" ty in
+ *   Format.printf "foreign function called with result %Ld@." (f ()) *)
 
 let () =
   let open Alcotest in

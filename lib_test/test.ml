@@ -67,6 +67,7 @@ let run_llvm_program2 (type a b c) ?verbose (fn_typ : (a -> b -> c) Ctypes.fn)
   Llvm_executionengine.dispose engine ;
   res
 
+(* Passing a unit, storing it in a local and loading it back doesn't fail. *)
 let test_store_unit () =
   Alcotest.(check (list unit)) "store_unit" [()]
   @@ run_llvm_program1_unsafe
@@ -81,6 +82,7 @@ let test_store_unit () =
            load unit_ptr))
        [()]
 
+(* Passing a bool, storing in a local and loading it back is the identity *)
 let test_store_bool () =
   Alcotest.(check (list bool)) "store_bool" [true; false]
   @@ run_llvm_program1_unsafe
@@ -95,6 +97,7 @@ let test_store_bool () =
            load bool_ptr))
        [true; false]
 
+(* Iterative factorial implementation *)
 let test_fact () =
   let rec fact_oracle n =
     if n = 0L then 1L else Int64.mul n (fact_oracle (Int64.pred n))
@@ -124,6 +127,7 @@ let test_fact () =
            load acc))
        [1L; 2L; 3L; 4L; 5L]
 
+(* Nested switches *)
 let test_nested_switch () =
   Alcotest.(check (list int64)) "nested_switch" [0L; 0L; 42L; 1789L; -1L]
   @@ run_llvm_program1
@@ -150,6 +154,7 @@ let test_nested_switch () =
              ~default:(fun () -> I64.v (-1L))))
        [0L; 1L; 11L; 10L; 12L]
 
+(* Nested conditionals *)
 let test_nested_cond () =
   Alcotest.(check (list int64)) "nested_cond" [0L; 0L; 42L; 1789L; 42L; 1789L]
   @@ run_llvm_program1
@@ -214,6 +219,8 @@ end
 
 let ( >> ) = Repr.seq
 
+(* Allocate a struct on the stack, store the arguments in
+   its fields, load them back and return their sum. *)
 let test_struct_alloca () =
   Alcotest.(check (list int64)) "struct_alloca" [2L; 3L; 4L; 5L; 6L]
   @@ run_llvm_program2
@@ -232,6 +239,7 @@ let test_struct_alloca () =
            I64.add acc.%{Int64_pair.f1} acc.%{Int64_pair.f2}))
        [(1L, 1L); (2L, 1L); (3L, 1L); (4L, 1L); (5L, 1L)]
 
+(* Pass a pair of integers as argument and sum the fields. *)
 let test_struct_arg () =
   Alcotest.(check (list int64)) "struct_arg" [2L; 3L; 4L; 5L; 6L]
   @@ run_llvm_program1_unsafe
@@ -542,16 +550,19 @@ let test_setaddr_struct_in_struct () =
 
     let ((), dummy) = projs r (fun { dummy } -> Cons_vec (dummy, Nil_vec))
   end in
-  Alcotest.(check (list bool)) "set_cst_struct_in_struct" [true]
+  Alcotest.(check (list bool)) "setaddr_struct_in_struct" [true]
   @@ run_llvm_program1_unsafe
        ~verbose:true
        Ctypes.(void @-> returning bool)
        (let open Repr in
        fundecl
-         ~name:"set_cst_array_in_struct"
+         ~name:"setaddr_struct_in_struct"
          ~signature:Prototype.(Type_system.unit @-> returning Type_system.bool)
          ~local:Stack_frame.(strct Bintree.r @+ strct Dummy.r @+ empty)
          ~body:(fun _self bintree dummy (_, ()) ->
+           let* a = bintree.%{Bintree.a} in
+           set a (I64.v 0L) (null_ptr Bintree.t) >> fun () ->
+           set a (I64.v 1L) (null_ptr Bintree.t) >> fun () ->
            (dummy.&{Dummy.dummy} <- bintree) >> fun () ->
            let* inner = dummy.%{Dummy.dummy} in
            let* a = (load inner).%{Bintree.a} in

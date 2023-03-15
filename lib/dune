@@ -14,10 +14,13 @@
   (name suplex)
   (public_name suplex)
   (modes native)
-  (libraries llvm llvm.executionengine llvm.analysis llvm.scalar_opts ppx_deriving core ctypes ctypes.foreign)
+  (libraries llvm llvm.executionengine llvm.analysis llvm.scalar_opts ctypes ctypes.foreign)
   (foreign_archives externals)
-  (preprocess (pps ppx_deriving.show ppx_deriving.eq ppx_deriving.ord ppx_bin_prot))
   (instrumentation (backend bisect_ppx))
-  (library_flags (-cclib lib/libexternals.a))
   (ocamlopt_flags (-g -rectypes))
+)
+
+(documentation
+   (package suplex)
+   (mld_files index)
 )

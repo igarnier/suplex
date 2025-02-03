@@ -29,17 +29,18 @@ type 'a numerical =
 
 (** Pretty-printing numerical types. *)
 let pp_numerical : type a. Format.formatter -> a numerical -> unit =
-  fun (type a) fmtr (n : a numerical) ->
-   let open Format in
-   match n with
-   | I64_num -> fprintf fmtr "i64"
-   | I32_num -> fprintf fmtr "i32"
-   | I16_num -> fprintf fmtr "i16"
-   | I8_num -> fprintf fmtr "i8"
-   | F32_num -> fprintf fmtr "f32"
-   | F64_num -> fprintf fmtr "f64"
+ fun (type a) fmtr (n : a numerical) ->
+  let open Format in
+  match n with
+  | I64_num -> fprintf fmtr "i64"
+  | I32_num -> fprintf fmtr "i32"
+  | I16_num -> fprintf fmtr "i16"
+  | I8_num -> fprintf fmtr "i8"
+  | F32_num -> fprintf fmtr "f32"
+  | F64_num -> fprintf fmtr "f64"
 
-(** Classifies numerical types into floating-point kind [`fp] or integer kind [`int]. *)
+(** Classifies numerical types into floating-point kind [`fp] or integer kind
+    [`int]. *)
 let numerical_kind : type a. a numerical -> [ `fp | `int ] =
  fun n ->
   match n with
@@ -65,15 +66,16 @@ let numerical_eq : type a b. a numerical -> b numerical -> (a, b) refl option =
 
 (** The module type describing the {b suplex} type system. *)
 module type S = sig
-  (** [('a, 'a_typ) typed_term] is the type of typed terms. See the definition of ['a m] below. *)
+  (** [('a, 'a_typ) typed_term] is the type of typed terms. See the definition
+      of ['a m] below. *)
   type (!'a, 'a_typ) typed_term
 
   (** ['a ptr] is the abstract type of pointers. *)
   type !'a ptr
 
-  (** [('a, 'c) arr] is the abstract type of arrays. The first type parameter
-      is the type of elements while the second type parameter encodes whether
-      the array has a statically known size or not. *)
+  (** [('a, 'c) arr] is the abstract type of arrays. The first type parameter is
+      the type of elements while the second type parameter encodes whether the
+      array has a statically known size or not. *)
   type (!'a, 'c) arr
 
   type ex_numerical = Ex_num : 'a numerical -> ex_numerical
@@ -88,12 +90,13 @@ module type S = sig
     | TArr_cst : 'a typ * int64 -> ('a, [ `cst ]) arr typ
     | TRecord : (_, 'u vec, 'u vec, 't) record -> 't typ
 
-  (** [('elim, 't_acc, 't, 'u) record] is the type of record descriptors.
-      The type parameters are as follows:
+  (** [('elim, 't_acc, 't, 'u) record] is the type of record descriptors. The
+      type parameters are as follows:
       - ['elim] is the type of eliminators for this record type
       - ['t_acc] is a type-level accumulator used internally, you can ignore it
       - ['t] is the type of elements held in the record
-      - ['u] is the final type of the record, which will be visible after {!seal} is called. *)
+      - ['u] is the final type of the record, which will be visible after
+        {!seal} is called. *)
   and ('elim, 't_acc, 't, 'u) record =
     | Record_empty : (unit, unit vec, 't vec, 'u) record
     | Record_field :
@@ -162,8 +165,8 @@ module type S = sig
   (** The type of arrays holding values of type [typ], with unknown length. *)
   val arr : 'a typ -> ('a, [ `unk ]) arr typ
 
-  (** The type of arrays holding values of type [typ], with statically known length.
-      These arrays are stored packed in structures. *)
+  (** The type of arrays holding values of type [typ], with statically known
+      length. These arrays are stored packed in structures. *)
   val arr_cst : 'a typ -> int64 -> ('a, [ `cst ]) arr typ
 
   (** [empty_rec] is the empty record. *)
@@ -194,10 +197,12 @@ module type S = sig
   (** [fn_eq] test function type equality. *)
   val fn_eq : 'a fn -> 'b fn -> bool
 
-  (** [returning ty] constructs the type of a function returning a value of type [ty]. *)
+  (** [returning ty] constructs the type of a function returning a value of type
+      [ty]. *)
   val returning : 'a typ -> 'a m fn
 
-  (** [ty @-> fn] extends the function type [fn] to take an argument of type [ty]. *)
+  (** [ty @-> fn] extends the function type [fn] to take an argument of type
+      [ty]. *)
   val ( @-> ) : 'a typ -> 'b fn -> ('a m -> 'b) fn
 end
 
@@ -258,43 +263,42 @@ end) :
     | Field { ty; _ } -> ty
 
   let rec pp_typ : type a. int list -> Format.formatter -> a typ -> unit =
-    fun (type a) visited fmtr (typ : a typ) ->
-     match typ with
-     | TUnit -> Format.pp_print_string fmtr "unit"
-     | TBool -> Format.pp_print_string fmtr "bool"
-     | TNum n -> pp_numerical fmtr n
-     | TPtr t -> Format.fprintf fmtr "[%a]" (pp_typ visited) t
-     | TArr_unk t -> Format.fprintf fmtr "<%a>" (pp_typ visited) t
-     | TArr_cst (t, sz) -> Format.fprintf fmtr "<%a:%Ld>" (pp_typ visited) t sz
-     | TRecord descr ->
-         let rec loop :
-             type x y z.
-             int list -> Format.formatter -> (x, y, z, a) record -> unit =
-          fun visited fmtr descr ->
-           match descr with
-           | Record_empty -> ()
-           | Record_field (field, rest) ->
-               Format.fprintf
-                 fmtr
-                 "%s: %a"
-                 (field_name field)
-                 (pp_typ visited)
-                 (field_type field) ;
-               Format.fprintf fmtr ";@," ;
-               loop visited fmtr rest
-           | Record_fix (id, f) ->
-               if List.mem id visited then Format.fprintf fmtr "#%d" id
-               else
-                 Format.fprintf
-                   fmtr
-                   "fix %d. %a"
-                   id
-                   (loop (id :: visited))
-                   (f typ)
-         in
-         Format.fprintf fmtr "@[{" ;
-         loop visited fmtr descr ;
-         Format.fprintf fmtr "}@]"
+   fun (type a) visited fmtr (typ : a typ) ->
+    match typ with
+    | TUnit -> Format.pp_print_string fmtr "unit"
+    | TBool -> Format.pp_print_string fmtr "bool"
+    | TNum n -> pp_numerical fmtr n
+    | TPtr t -> Format.fprintf fmtr "Ptr(@[%a@])" (pp_typ visited) t
+    | TArr_unk t -> Format.fprintf fmtr "<%a>" (pp_typ visited) t
+    | TArr_cst (t, sz) -> Format.fprintf fmtr "<%a:%Ld>" (pp_typ visited) t sz
+    | TRecord descr ->
+        let rec loop : type x y z.
+            int list -> Format.formatter -> (x, y, z, a) record -> unit =
+         fun visited fmtr descr ->
+          match descr with
+          | Record_empty -> ()
+          | Record_field (field, rest) ->
+              Format.fprintf
+                fmtr
+                "%s: %a"
+                (field_name field)
+                (pp_typ visited)
+                (field_type field) ;
+              Format.fprintf fmtr ";@," ;
+              loop visited fmtr rest
+          | Record_fix (id, f) ->
+              if List.mem id visited then Format.fprintf fmtr "#%d" id
+              else
+                Format.fprintf
+                  fmtr
+                  "fix %d. %a"
+                  id
+                  (loop (id :: visited))
+                  (f typ)
+        in
+        Format.fprintf fmtr "@[{" ;
+        loop visited fmtr descr ;
+        Format.fprintf fmtr "}@]"
 
   let pp_typ fmtr typ = pp_typ [] fmtr typ
 
@@ -311,8 +315,8 @@ end) :
     | (TRecord descr1, TRecord descr2) -> record_eq descr1 descr2
     | _ -> false
 
-  and record_eq :
-      type a b c u d e f v. (a, b, c, u) record -> (d, e, f, v) record -> bool =
+  and record_eq : type a b c u d e f v.
+      (a, b, c, u) record -> (d, e, f, v) record -> bool =
    fun descr1 descr2 ->
     match (descr1, descr2) with
     | (Record_empty, Record_empty) -> true

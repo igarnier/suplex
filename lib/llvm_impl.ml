@@ -152,7 +152,7 @@ end = struct
       let typ =
         Llvm.function_type
           (Llvm.i1_type llvm_context)
-          [| Llvm.pointer_type (Llvm.i8_type llvm_context) |]
+          [| Llvm.pointer_type llvm_context |]
       in
       ignore (Llvm.declare_function "failwith" typ llvm_module) ;
       ignore (Llvm.declare_function "print" typ llvm_module) ;
@@ -228,41 +228,37 @@ end = struct
 
     (* Convert type to Llvm repr *)
     let rec storage_of_type : type a. a Types.typ -> t k =
-      fun (type a) (typ : a Types.typ) : t k ->
-       let open K in
-       let* context = context in
-       match typ with
-       | TNum typ -> of_numerical typ
-       | TUnit -> return (bool_t context)
-       | TBool -> return (bool_t context)
-       | TPtr typ ->
-           let* lltyp = storage_of_type typ in
-           return (Llvm.pointer_type lltyp)
-       | TArr_unk typ ->
-           let* lltyp = storage_of_type typ in
-           return (Llvm.pointer_type lltyp)
-       | TArr_cst (typ, sz) ->
-           if sz < 0L then (* Detected at type construction time *)
-             assert false
-           else
-             let* lltyp = storage_of_type typ in
-             return (Llvm.array_type lltyp (Int64.to_int sz))
-       | TRecord record_descr -> (
-           match record_descr with
-           | Record_fix (id, _) -> (
-               match Hashtbl.find_opt struct_table id with
-               | Some ty -> return ty
-               | _ ->
-                   let name = Printf.sprintf "struct_%d" id in
-                   let named_strct = Llvm.named_struct_type context name in
-                   Hashtbl.add struct_table id named_strct ;
-                   struct_of_tuple record_descr (fun fields ->
-                       let packed = false in
-                       Llvm.struct_set_body named_strct fields packed ;
-                       return named_strct))
-           | _ ->
-               struct_of_tuple record_descr (fun fields ->
-                   return (Llvm.struct_type context fields)))
+     fun (type a) (typ : a Types.typ) : t k ->
+      let open K in
+      let* context = context in
+      match typ with
+      | TNum typ -> of_numerical typ
+      | TUnit -> return (bool_t context)
+      | TBool -> return (bool_t context)
+      | TPtr _typ -> return (Llvm.pointer_type context)
+      | TArr_unk _typ -> return (Llvm.pointer_type context)
+      | TArr_cst (typ, sz) ->
+          if sz < 0L then (* Detected at type construction time *)
+            assert false
+          else
+            let* lltyp = storage_of_type typ in
+            return (Llvm.array_type lltyp (Int64.to_int sz))
+      | TRecord record_descr -> (
+          match record_descr with
+          | Record_fix (id, _) -> (
+              match Hashtbl.find_opt struct_table id with
+              | Some ty -> return ty
+              | _ ->
+                  let name = Printf.sprintf "struct_%d" id in
+                  let named_strct = Llvm.named_struct_type context name in
+                  Hashtbl.add struct_table id named_strct ;
+                  struct_of_tuple record_descr (fun fields ->
+                      let packed = false in
+                      Llvm.struct_set_body named_strct fields packed ;
+                      return named_strct))
+          | _ ->
+              struct_of_tuple record_descr (fun fields ->
+                  return (Llvm.struct_type context fields)))
 
     and of_numerical : type a. a Type_system.numerical -> t k =
      fun (typ : a Type_system.numerical) : Llvm.lltype k ->
@@ -273,8 +269,7 @@ end = struct
     and struct_of_tuple : type a b c u. (a, b, c, u) Types.record -> _ -> t k =
      fun descr k ->
       let open K in
-      let rec loop :
-          type a b c u.
+      let rec loop : type a b c u.
           (a, b, c, u) Types.record ->
           Llvm.lltype list ->
           (Llvm.lltype array -> Llvm.lltype k) ->
@@ -617,8 +612,7 @@ end = struct
                llreturn truncated (Types.TNum n2)
         | _ -> None
 
-    let iext :
-        type a b.
+    let iext : type a b.
         (Llvm.llvalue ->
         Llvm.lltype ->
         string ->
@@ -773,35 +767,52 @@ end = struct
     (* Invariant: fixed-size arrays are passed by reference *)
     let* builder = builder in
     let*? record = record in
+    let* llrecord_type =
+      match typeof record with
+      | TPtr record -> LLVM_type.storage_of_type record
+      | _ -> assert false
+    in
     let field_addr =
+      let record_value = llval record in
+      (* TODO: inbounds? *)
       Llvm.build_struct_gep
-        (llval record)
+        llrecord_type
+        record_value
         index
         ("fieldaddr_" ^ string_of_int index)
         builder
     in
     let fty = field_type field in
+    let* llfty = LLVM_type.storage_of_type fty in
     match fty with
     | TArr_cst _ -> llreturn field_addr fty
     | TUnit | TBool | TNum _ | TPtr _ | TArr_unk _ | TRecord _ ->
-        let v = Llvm.build_load field_addr "record_get_load" builder in
+        let v = Llvm.build_load llfty field_addr "record_get_load" builder in
         llreturn v fty
 
   let set_field : type a u. (a, u) field -> int -> u m -> a m -> unit m =
    fun field index record elt ->
     let open K in
     (* Invariant: fixed-size arrays are passed by reference *)
+    (* TODO: add type constraints to ensure that [record] is a pointer to a record *)
     let* builder = builder in
     let*? record = record in
     let*? elt = elt in
+    let* llrecord_type =
+      match typeof record with
+      | TPtr record -> LLVM_type.storage_of_type record
+      | _ -> assert false
+    in
     let field_addr =
       Llvm.build_struct_gep
+        llrecord_type
         (llval record)
         index
         ("fieldaddr_" ^ string_of_int index)
         builder
     in
     let fty = field_type field in
+    let* llfty = LLVM_type.storage_of_type fty in
     match fty with
     | TUnit | TBool | TNum _ | TPtr _ | TArr_unk _ | TRecord _ ->
         (* TODO: memcpy for large structs? *)
@@ -825,15 +836,17 @@ end = struct
           | _ -> .
         in
         (* TODO: memcpy for large arrays *)
-        let s = Llvm.build_load (llval elt) "record_set_arr_load" builder in
+        let s =
+          Llvm.build_load llfty (llval elt) "record_set_arr_load" builder
+        in
         let _ = Llvm.build_store s field_addr builder in
         unit
 
   let projs : type elim res u. (elim, _, res, u) record -> elim =
    fun record ->
     let open K in
-    let rec loop :
-        type elim acc. (elim, acc, res, u) Types.record -> int -> elim =
+    let rec loop : type elim acc.
+        (elim, acc, res, u) Types.record -> int -> elim =
      fun (descr : (elim, acc, res, u) Types.record) index ->
       match descr with
       | Record_empty -> (() : elim)
@@ -841,8 +854,14 @@ end = struct
           let getaddr (record : u ptr m) =
             let* builder = builder in
             let*? record = record in
+            let* llrecord_type =
+              match typeof record with
+              | TPtr record -> LLVM_type.storage_of_type record
+              | _ -> assert false
+            in
             let field_addr =
               Llvm.build_struct_gep
+                llrecord_type
                 (llval record)
                 index
                 ("fieldaddr_" ^ string_of_int index)
@@ -905,7 +924,8 @@ end = struct
           | TRecord _ -> assert false
           | _ -> .
         in
-        let s = Llvm.build_load (llval v) "store_array_load" builder in
+        let* llvty = LLVM_type.storage_of_type (typeof v) in
+        let s = Llvm.build_load llvty (llval v) "store_array_load" builder in
         let _ = Llvm.build_store s (llval ptr) builder in
         unit
     | TPtr _ ->
@@ -923,7 +943,9 @@ end = struct
     | TPtr typ -> (
         match typ with
         | TArr_cst _ -> llreturn (llval ptr) typ
-        | _ -> llreturn (Llvm.build_load (llval ptr) "load_tmp" builder) typ)
+        | _ ->
+            let* llty = LLVM_type.storage_of_type typ in
+            llreturn (Llvm.build_load llty (llval ptr) "load_tmp" builder) typ)
     | TRecord _ ->
         (* can't be refuted because of abstract types *)
         assert false
@@ -937,14 +959,24 @@ end = struct
     let*? i = i in
     match (typeof arr, typeof i) with
     | (TArr_unk elt_ty, TNum I64_num) ->
-        let addr = Llvm.build_gep (llval arr) [| llval i |] "get_gep" builder in
+        let* llelt_ty = LLVM_type.storage_of_type elt_ty in
+        let addr =
+          Llvm.build_gep llelt_ty (llval arr) [| llval i |] "get_gep" builder
+        in
         k builder addr elt_ty
     | (TArr_cst (elt_ty, _sz), TNum I64_num) ->
-        let zero = Llvm.const_int (LLVM_type.int64_t context) 0 in
+        let* llelt_ty = LLVM_type.storage_of_type elt_ty in
+        let _zero = Llvm.const_int (LLVM_type.int64_t context) 0 in
         let addr =
+          (* TODO misaligned stores/loads *)
           (* The first [zero] to account for the fact that [arr] is actually
              a pointer to the fixed-size array *)
-          Llvm.build_gep (llval arr) [| zero; llval i |] "get_gep" builder
+          Llvm.build_gep
+            llelt_ty
+            (llval arr)
+            [| (* zero; *) llval i |]
+            "get_gep"
+            builder
         in
         k builder addr elt_ty
     | _ -> assert false
@@ -961,7 +993,8 @@ end = struct
                  the fixed-size array. *)
           llreturn addr elt_ty
       | _ ->
-          let elt = Llvm.build_load addr "get_tmp" builder in
+          let* llelt_ty = LLVM_type.storage_of_type elt_ty in
+          let elt = Llvm.build_load llelt_ty addr "get_tmp" builder in
           llreturn elt elt_ty
     in
     get_generic arr i k
@@ -981,8 +1014,9 @@ end = struct
     let*? e = e in
     match typeof arr with
     | TArr_unk elt_ty as aty ->
+        let* llelt_ty = LLVM_type.storage_of_type elt_ty in
         (let addr =
-           Llvm.build_gep (llval arr) [| llval i |] "set_gep" builder
+           Llvm.build_gep llelt_ty (llval arr) [| llval i |] "set_gep" builder
          in
          match elt_ty with
          | TArr_cst (_, sz) ->
@@ -1003,16 +1037,24 @@ end = struct
              in
              (* e is a pointer to a fixed-size array (LLVM type `[t x n]*`). *)
              (* TODO: for large arrays, we should issue a memcpy here *)
-             let elt = Llvm.build_load (llval e) "set_load_arr" builder in
+             let elt =
+               Llvm.build_load llelt_ty (llval e) "set_load_arr" builder
+             in
              ignore (Llvm.build_store elt addr builder)
          | _ -> ignore (Llvm.build_store (llval e) addr builder)) ;
         unit
     | TArr_cst (elt_ty, _sz) as aty ->
         (* [arr] is a pointer to a fixed-size array (LLVM type `[t x n]*`). *)
-        let* context = context in
-        let zero = Llvm.const_int (LLVM_type.int64_t context) 0 in
+        let* _context = context in
+        let* llelt_ty = LLVM_type.storage_of_type elt_ty in
+        (* let zero = Llvm.const_int (LLVM_type.int64_t context) 0 in *)
         let addr =
-          Llvm.build_gep (llval arr) [| zero; llval i |] "set_gep" builder
+          Llvm.build_gep
+            llelt_ty
+            (llval arr)
+            [| (* zero; *) llval i |]
+            "set_gep"
+            builder
         in
         (match elt_ty with
         | TArr_cst (_, sz) ->
@@ -1032,7 +1074,9 @@ end = struct
               | _ -> assert false
             in
             (* e is a pointer to a fixed-size array (LLVM type `[t x n]*`). *)
-            let strct = Llvm.build_load (llval e) "set_load_arr" builder in
+            let strct =
+              Llvm.build_load llelt_ty (llval e) "set_load_arr" builder
+            in
             ignore (Llvm.build_store strct addr builder)
         | _ -> ignore (Llvm.build_store (llval e) addr builder)) ;
         unit
@@ -1049,8 +1093,9 @@ end = struct
     match typeof arr with
     | TNum _ | TRecord _ -> assert false
     | TArr_unk elt_ty ->
+        let* llelt_ty = LLVM_type.storage_of_type elt_ty in
         (let addr =
-           Llvm.build_gep (llval arr) [| llval i |] "set_gep" builder
+           Llvm.build_gep llelt_ty (llval arr) [| llval i |] "set_gep" builder
          in
          match elt_ty with
          | TPtr (TArr_cst _) ->
@@ -1063,10 +1108,16 @@ end = struct
         unit
     | TArr_cst (elt_ty, _) ->
         (* [arr] is a pointer to a fixed-size array (LLVM type `[t x n]*`). *)
-        let* context = context in
-        let zero = Llvm.const_int (LLVM_type.int64_t context) 0 in
+        let* _context = context in
+        let* llelt_ty = LLVM_type.storage_of_type elt_ty in
+        (* let zero = Llvm.const_int (LLVM_type.int64_t context) 0 in *)
         let addr =
-          Llvm.build_gep (llval arr) [| zero; llval i |] "set_gep" builder
+          Llvm.build_gep
+            llelt_ty
+            (llval arr)
+            [| (* zero; *) llval i |]
+            "set_gep"
+            builder
         in
         (match elt_ty with
         | TPtr (TArr_cst _) ->
@@ -1210,8 +1261,7 @@ end = struct
     Llvm.position_at_end for_exit builder ;
     unit
 
-  let foldi :
-      type a.
+  let foldi : type a.
       init:I64.t m ->
       acc:a m ->
       pred:(I64.t m -> a m -> bool m) ->
@@ -1510,18 +1560,17 @@ end = struct
           alloca (rest expr)
 
   let rec prototype : type s. s Types.fn -> Llvm.lltype list -> Llvm.lltype k =
-    fun (type s) (proto : s Types.fn) acc ->
-     let open K in
-     match proto with
-     | Types.Returning ty ->
-         let* retty = LLVM_type.surface_type ty in
-         return (Llvm.function_type retty (Array.of_list (List.rev acc)))
-     | Types.Arrow (ty, rest) ->
-         let* llty = LLVM_type.surface_type ty in
-         prototype rest (llty :: acc)
+   fun (type s) (proto : s Types.fn) acc ->
+    let open K in
+    match proto with
+    | Types.Returning ty ->
+        let* retty = LLVM_type.surface_type ty in
+        return (Llvm.function_type retty (Array.of_list (List.rev acc)))
+    | Types.Arrow (ty, rest) ->
+        let* llty = LLVM_type.surface_type ty in
+        prototype rest (llty :: acc)
 
-  let global_array :
-      type a v.
+  let global_array : type a v.
       (module Numerical with type t = a and type v = v) ->
       v array ->
       (a, [ `cst ]) arr m =
@@ -1581,8 +1630,7 @@ end = struct
     let _llvoid = Llvm.build_free (llval arr) builder in
     unit
 
-  let rec apply_args :
-      type s.
+  let rec apply_args : type s.
       s Types.fn ->
       Llvm.llvalue list ->
       s ->
@@ -1599,8 +1647,7 @@ end = struct
         apply_args rest args (f (llreturn arg typ))
     | _ -> return (Error `Bad_arity)
 
-  let fundecl :
-      type s.
+  let fundecl : type s.
       string -> s Types.fn -> (s fundecl -> s) stack_allocating -> s fundecl k =
    fun name signature body ->
     let open K in
@@ -1638,9 +1685,12 @@ end = struct
       | Types.Returning retty ->
           let* builder = builder in
           let* acc = acc in
-          let call =
-            Llvm.build_call f.fptr (Array.of_list (List.rev acc)) "call" builder
+          let* llretty = LLVM_type.surface_type retty in
+          let args = Array.of_list (List.rev acc) in
+          let llfty =
+            Llvm.function_type llretty (Array.map Llvm.type_of args)
           in
+          let call = Llvm.build_call llfty f.fptr args "call" builder in
           llreturn call retty
       | Types.Arrow (_ty, proto) ->
           fun arg ->
@@ -1699,7 +1749,9 @@ end = struct
       else Format.asprintf "(%s) %s" !debug_metadata msg
     in
     let*? s = string ~z:true msg in
-    let _call = Llvm.build_call fptr [| s.llval |] "call" builder in
+    let* llretty = LLVM_type.surface_type Types.unit in
+    let llfty = Llvm.function_type llretty [| Llvm.type_of s.llval |] in
+    let _call = Llvm.build_call llfty fptr [| s.llval |] "call" builder in
     let _unr = Llvm.build_unreachable builder in
     llreturn_unsound
 
@@ -1713,7 +1765,9 @@ end = struct
       | Some fptr -> fptr
     in
     let*? s = string ~z:true msg in
-    let _call = Llvm.build_call fptr [| s.llval |] "call" builder in
+    let* llretty = LLVM_type.surface_type Types.unit in
+    let llfty = Llvm.function_type llretty [| Llvm.type_of s.llval |] in
+    let _call = Llvm.build_call llfty fptr [| s.llval |] "call" builder in
     unit
 
   module Exec = struct
@@ -1893,42 +1947,39 @@ end = struct
       | Full_rel_float64 : (F64.t m, float, float) full_rel
       | Full_rel_float32 : (F32.t m, float, float) full_rel
       | Full_rel_string : (I8.t ptr m, string, string) full_rel
-      | Full_rel_ba_i64
-          : ( I64_ba.s ptr m,
-              (int64, Bigarray.int64_elt, Bigarray.c_layout) Bigarray.Array1.t,
-              I64_ba.c Ctypes.structure Ctypes.ptr )
-            full_rel
-      | Full_rel_ba_i32
-          : ( I32_ba.s ptr m,
-              (int32, Bigarray.int32_elt, Bigarray.c_layout) Bigarray.Array1.t,
-              I32_ba.c Ctypes.structure Ctypes.ptr )
-            full_rel
-      | Full_rel_ba_i16
-          : ( I16_ba.s ptr m,
-              ( int,
-                Bigarray.int16_signed_elt,
-                Bigarray.c_layout )
-              Bigarray.Array1.t,
-              I16_ba.c Ctypes.structure Ctypes.ptr )
-            full_rel
-      | Full_rel_ba_i8
-          : ( I8_ba.s ptr m,
-              ( int,
-                Bigarray.int8_signed_elt,
-                Bigarray.c_layout )
-              Bigarray.Array1.t,
-              I8_ba.c Ctypes.structure Ctypes.ptr )
-            full_rel
-      | Full_rel_ba_f64
-          : ( F64_ba.s ptr m,
-              (float, Bigarray.float64_elt, Bigarray.c_layout) Bigarray.Array1.t,
-              F64_ba.c Ctypes.structure Ctypes.ptr )
-            full_rel
-      | Full_rel_ba_f32
-          : ( F32_ba.s ptr m,
-              (float, Bigarray.float32_elt, Bigarray.c_layout) Bigarray.Array1.t,
-              F32_ba.c Ctypes.structure Ctypes.ptr )
-            full_rel
+      | Full_rel_ba_i64 :
+          ( I64_ba.s ptr m,
+            (int64, Bigarray.int64_elt, Bigarray.c_layout) Bigarray.Array1.t,
+            I64_ba.c Ctypes.structure Ctypes.ptr )
+          full_rel
+      | Full_rel_ba_i32 :
+          ( I32_ba.s ptr m,
+            (int32, Bigarray.int32_elt, Bigarray.c_layout) Bigarray.Array1.t,
+            I32_ba.c Ctypes.structure Ctypes.ptr )
+          full_rel
+      | Full_rel_ba_i16 :
+          ( I16_ba.s ptr m,
+            ( int,
+              Bigarray.int16_signed_elt,
+              Bigarray.c_layout )
+            Bigarray.Array1.t,
+            I16_ba.c Ctypes.structure Ctypes.ptr )
+          full_rel
+      | Full_rel_ba_i8 :
+          ( I8_ba.s ptr m,
+            (int, Bigarray.int8_signed_elt, Bigarray.c_layout) Bigarray.Array1.t,
+            I8_ba.c Ctypes.structure Ctypes.ptr )
+          full_rel
+      | Full_rel_ba_f64 :
+          ( F64_ba.s ptr m,
+            (float, Bigarray.float64_elt, Bigarray.c_layout) Bigarray.Array1.t,
+            F64_ba.c Ctypes.structure Ctypes.ptr )
+          full_rel
+      | Full_rel_ba_f32 :
+          ( F32_ba.s ptr m,
+            (float, Bigarray.float32_elt, Bigarray.c_layout) Bigarray.Array1.t,
+            F32_ba.c Ctypes.structure Ctypes.ptr )
+          full_rel
       | Full_rel_arr_unk :
           ('suplex m, 'ocaml, 'ctypes) full_rel
           -> ( ('suplex, [ `unk ]) arr m,
@@ -1948,8 +1999,8 @@ end = struct
                'ctypes Ctypes.carray Ctypes.ptr )
              full_rel
           (** [Full_rel_arr_cst_toplevel] is not directly visible to the user.
-              We silently replace [Full_rel_arr_cst] by this constructor to honor the
-              fact that arrays are passed by-ref and not by-value  *)
+              We silently replace [Full_rel_arr_cst] by this constructor to
+              honor the fact that arrays are passed by-ref and not by-value *)
       | Full_rel_malloced_struct :
           (_, 'suplex Vec.t, 'suplex Vec.t, 'u) Types.record
           * ('suplex Vec.t, 'ocaml Vec.t, 'ctypes Vec.t) full_rel_vec
@@ -2087,8 +2138,7 @@ end = struct
       | Full_rel_opaque_malloced_struct _strct -> opaque
       | Full_rel_struct (_strct, v) -> ctypes_struct v
 
-    and ctypes_struct :
-        type s o c u.
+    and ctypes_struct : type s o c u.
         (s Vec.t, o, c) full_rel_vec -> u Ctypes.structure Ctypes.typ =
      fun rels ->
       let open Ctypes in
@@ -2169,8 +2219,7 @@ end = struct
           let (_typ, strct) = construct_ctypes_record fields v in
           strct
 
-    and init_carray :
-        type s o c.
+    and init_carray : type s o c.
         (s, o, c) full_rel -> o Seq.t -> int -> c Ctypes_static.carray -> unit =
      fun r v expected_len ctypes_arr ->
       let open Ctypes in
@@ -2188,16 +2237,14 @@ end = struct
           CArray.set ctypes_arr n (cast x))
         v
 
-    and construct_ctypes_record :
-        type s o c u.
+    and construct_ctypes_record : type s o c u.
         (s Vec.t, o Vec.t, c) full_rel_vec ->
         o Vec.t ->
         u Ctypes.structure Ctypes_static.typ * u Ctypes.structure =
      fun rv v ->
       (* We reconstruct the Ctypes struct type and allocate it. *)
       let p : u Ctypes.structure Ctypes_static.typ = Ctypes.structure "" in
-      let rec loop :
-          type s o c.
+      let rec loop : type s o c.
           (s Vec.t, o Vec.t, c) full_rel_vec ->
           o Vec.t ->
           (u Ctypes.structure -> u Ctypes.structure) ->
@@ -2246,15 +2293,13 @@ end = struct
       | Full_rel_opaque_malloced_struct _ -> v
       | Full_rel_struct (_strct, fields) -> destruct_ctypes_record fields v
 
-    and destruct_ctypes_record :
-        type s o c u.
+    and destruct_ctypes_record : type s o c u.
         (s Vec.t, o Vec.t, c) full_rel_vec -> u Ctypes.structure -> o Vec.t =
      fun rv strct ->
       (* We lost the fields - hence we have reconstruct the Ctypes struct type in order
          to destruct [strct]. *)
       let p : u Ctypes.structure Ctypes_static.typ = Ctypes.structure "" in
-      let rec loop :
-          type s o' c.
+      let rec loop : type s o' c.
           (s Vec.t, o' Vec.t, c) full_rel_vec ->
           (o' Vec.t -> o Vec.t) ->
           o Vec.t =
@@ -2270,8 +2315,8 @@ end = struct
       in
       loop rv Fun.id
 
-    let rec box_ctypes_fn :
-        type s o c. (s, o, c Ctypes.fn) full_rel_fn -> c -> o =
+    let rec box_ctypes_fn : type s o c.
+        (s, o, c Ctypes.fn) full_rel_fn -> c -> o =
      fun rel f ->
       match rel with
       | Fn_returning r -> ctypes_to_ocaml r f
@@ -2337,8 +2382,8 @@ end = struct
     let add_fdecl fdecl rel mdl =
       Add_fundecl { fdecl = Fundecl { fdecl; rel }; mdl }
 
-    let rec lookup_function :
-        type s f. s module_ -> string -> f Types.fn -> f fundecl option =
+    let rec lookup_function : type s f.
+        s module_ -> string -> f Types.fn -> f fundecl option =
      fun mdl name proto ->
       match mdl with
       | Empty_module -> None
@@ -2363,8 +2408,9 @@ end = struct
           raise e
       in
       let engine = Llvm_executionengine.create ~options:cfg state.llvm_module in
-      let fpm = Llvm.PassManager.create () in
-      ignore (Llvm.PassManager.run_module state.llvm_module fpm) ;
+      Llvm.print_module "debug.ll" state.llvm_module ;
+      (* let fpm = Llvm.PassManager.create () in *)
+      (* ignore (Llvm.PassManager.run_module state.llvm_module fpm) ; *)
       let roots = ref List.[] in
       let rec loop : type s. s module_ -> s =
        fun mdl ->

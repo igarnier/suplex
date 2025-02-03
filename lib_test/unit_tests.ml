@@ -134,21 +134,21 @@ let test_nested_cond () =
             let*! _ = store local (I64.div x (I64.v 2L)) in
             let*! v = load local in
             cond (I64.eq v I64.zero) (function
-                | true -> I64.zero
-                | false ->
-                    cond
-                      (I64.eq v (I64.v 5L))
-                      (function
-                        | true ->
-                            cond
-                              (I64.eq x (I64.v 11L))
-                              (function
-                                | true -> I64.v 42L | false -> I64.v 1789L)
-                        | false ->
-                            cond
-                              (I64.eq x (I64.v 12L))
-                              (function
-                                | true -> I64.v 42L | false -> I64.v 1789L))) ))
+              | true -> I64.zero
+              | false ->
+                  cond
+                    (I64.eq v (I64.v 5L))
+                    (function
+                      | true ->
+                          cond
+                            (I64.eq x (I64.v 11L))
+                            (function
+                              | true -> I64.v 42L | false -> I64.v 1789L)
+                      | false ->
+                          cond
+                            (I64.eq x (I64.v 12L))
+                            (function
+                              | true -> I64.v 42L | false -> I64.v 1789L))) ))
        [0L; 1L; 11L; 10L; 12L; 13L])
 
 module Int64_pair = struct
@@ -278,7 +278,6 @@ let test_cst_array_arg () =
       ( local Stack.(num I64_num) @@ fun acc ->
         end_frame @@ fun _self x ->
         let*! _ = store acc I64.zero in
-
         let*! _ =
           for_loop 0L 4L (fun i -> store acc (I64.add (load acc) (get x i)))
         in
@@ -721,8 +720,7 @@ let test_switch_all_fail () =
   Alcotest.check_raises "failing_switch" (Failure "default") (fun () ->
       ignore (f 8L))
 
-let test_bigarray :
-    type ba s o.
+let test_bigarray : type ba s o.
     (module Numerical with type t = s) ->
     (module Exec.BA with type elt = s and type s = ba) ->
     (ba ptr Types.m, (o, 'elt, Bigarray.c_layout) Bigarray.Array1.t) Exec.rel ->

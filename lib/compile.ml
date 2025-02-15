@@ -1,0 +1,1004 @@
+open Types
+open Syntax
+
+module LLVM_type = struct
+  type t = Llvm.lltype
+
+  let _void_t ctxt = Llvm.void_type ctxt
+
+  let int64_t ctxt = Llvm.i64_type ctxt
+
+  let int32_t ctxt = Llvm.i32_type ctxt
+
+  let int16_t ctxt = Llvm.i16_type ctxt [@@ocaml.warning "-32"]
+
+  let int8_t ctxt = Llvm.i8_type ctxt [@@ocaml.warning "-32"]
+
+  let size_t ctxt = Llvm.i64_type ctxt [@@ocaml.warning "-32"]
+
+  let bool_t ctxt = Llvm.i1_type ctxt
+
+  let float32_t ctxt = Llvm.float_type ctxt
+
+  let float64_t ctxt = Llvm.double_type ctxt
+
+  let struct_table = Hashtbl.create 11
+
+  let raw_llty_of_numerical (type a) (typ : a numerical) context =
+    match typ with
+    | I64_num -> int64_t context
+    | I32_num -> int32_t context
+    | I16_num -> int16_t context
+    | I8_num -> int8_t context
+    | F32_num -> float32_t context
+    | F64_num -> float64_t context
+
+  (* Convert type to Llvm repr *)
+  let rec storage_of_type : type a. Llvm.llcontext -> a typ -> t =
+   fun (type a) context (typ : a typ) ->
+    match typ with
+    | TNum numty -> of_numerical context numty
+    | TUnit -> bool_t context
+    | TBool -> bool_t context
+    | TPtr _typ -> Llvm.pointer_type context
+    | TArr_unk _typ -> Llvm.pointer_type context
+    | TArr_cst (typ, sz) ->
+        assert (sz >= 0L) ;
+        let lltyp = storage_of_type context typ in
+        Llvm.array_type lltyp (Int64.to_int sz)
+    | TRecord { descr = record_descr } -> (
+        match record_descr with
+        | Record_fix (id, _) -> (
+            match Hashtbl.find_opt struct_table id with
+            | Some ty -> ty
+            | _ ->
+                let name = Printf.sprintf "struct_%d" id in
+                let named_strct = Llvm.named_struct_type context name in
+                Hashtbl.add struct_table id named_strct ;
+                let fields = struct_of_tuple context record_descr in
+                let packed = false in
+                Llvm.struct_set_body named_strct fields packed ;
+                named_strct)
+        | _ ->
+            let fields = struct_of_tuple context record_descr in
+            Llvm.struct_type context fields)
+    | TFn _ -> Llvm.pointer_type context
+
+  and of_numerical : type a. Llvm.llcontext -> a numerical -> t =
+   fun context (typ : a numerical) : Llvm.lltype ->
+    raw_llty_of_numerical typ context
+
+  and struct_of_tuple : type a b c u.
+      Llvm.llcontext -> (a, b, c, u) record_desc -> t array =
+   fun context descr ->
+    let rec loop : type a b c u.
+        (a, b, c, u) record_desc -> Llvm.lltype list -> Llvm.lltype array =
+     fun descr acc ->
+      match descr with
+      | Record_empty ->
+          let fields = List.rev acc in
+          Array.of_list fields
+      | Record_field { field; index = _; rest } ->
+          let typ = storage_of_type context (Types.field_type field) in
+          loop rest (typ :: acc)
+      | Record_fix (id, f) ->
+          let unfolded = f (Types.seal descr) in
+          assert (acc = []) ;
+          assert (Hashtbl.mem struct_table id) ;
+          loop unfolded acc
+    in
+    loop descr []
+
+  (* At function call boundaries, we must handle the fact that
+       some values are passed by-ref instead of by-value. *)
+  let surface_type : type a. Llvm.llcontext -> a typ -> t =
+   fun context (typ : a typ) : t ->
+    match typ with
+    | TArr_cst _ -> storage_of_type context (TPtr typ)
+    | _ -> storage_of_type context typ
+end
+
+module SMap = Map.Make (String)
+
+type llvm_state =
+  { llvm_context : Llvm.llcontext;
+    llvm_module : Llvm.llmodule;
+    llvm_builder : Llvm.llbuilder;
+    externals : (string, Llvm.llvalue) Hashtbl.t;
+    const_strings : (string, Llvm.llvalue) Hashtbl.t
+  }
+
+let new_llvm_state () =
+  let llvm_context = Llvm.global_context () in
+  let llvm_module = Llvm.create_module llvm_context "jit" in
+  let llvm_builder = Llvm.builder llvm_context in
+  let externals = Hashtbl.create 11 in
+  let const_strings = Hashtbl.create 11 in
+  (* builtins *)
+  let typ =
+    Llvm.function_type
+      (Llvm.i1_type llvm_context)
+      [| Llvm.pointer_type llvm_context |]
+  in
+  ignore (Llvm.declare_function "failwith" typ llvm_module) ;
+  ignore (Llvm.declare_function "print" typ llvm_module) ;
+  { llvm_context; llvm_module; llvm_builder; externals; const_strings }
+
+let with_type ty value = Some { value; ty }
+
+let global_string (state : llvm_state) ~z s =
+  match Hashtbl.find_opt state.const_strings s with
+  | Some llglob ->
+      (* llglob is a fixed-size array! *)
+      llglob
+  | None ->
+      let llglob =
+        Llvm.define_global
+          s
+          ((if z then Llvm.const_stringz else Llvm.const_string)
+             state.llvm_context
+             s)
+          state.llvm_module
+      in
+      Hashtbl.add state.const_strings s llglob ;
+      llglob
+
+let create_block_after state block name =
+  let new_block = Llvm.insert_block state.llvm_context name block in
+  Llvm.move_block_after block new_block ;
+  Llvm.position_at_end new_block state.llvm_builder ;
+  new_block
+
+let append_to_insertion_block state name =
+  let insertion_block = Llvm.insertion_block state.llvm_builder in
+  create_block_after state insertion_block name
+
+let random_name () =
+  let long_name =
+    Digest.bytes (Marshal.to_bytes (Random.full_int max_int) [])
+    |> Digest.to_hex
+  in
+  String.sub long_name 0 8
+
+let sf = Printf.sprintf
+
+let ( let* ) = Option.bind
+
+let return_unit state =
+  with_type Types.unit @@ Llvm.const_int (LLVM_type.bool_t state.llvm_context) 0
+
+let get_field_addr : type a u.
+    llvm_state ->
+    (a, u) field ->
+    u typ ->
+    u ptr llvm_typed ->
+    a ptr llvm_typed option =
+ fun state field recty record_ptr ->
+  match Types.field_index field recty with
+  | Error msg -> failwith msg
+  | Ok None ->
+      Format.kasprintf
+        failwith
+        "GetFieldAddr: field %a not found"
+        Types.pp_field
+        field
+  | Ok (Some index) ->
+      let llrecord_type = LLVM_type.storage_of_type state.llvm_context recty in
+      let field_addr =
+        Llvm.build_struct_gep
+          llrecord_type
+          record_ptr.value
+          index
+          ("fieldaddr_" ^ string_of_int index)
+          state.llvm_builder
+      in
+      let fty = field_type field in
+      with_type (Types.ptr fty) field_addr
+
+let get_field : type a u.
+    llvm_state ->
+    (a, u) field ->
+    u typ ->
+    u ptr llvm_typed ->
+    a llvm_typed option =
+ fun state field recty record_ptr ->
+  let* field_addr = get_field_addr state field recty record_ptr in
+  let fty = field_type field in
+  let llfty = LLVM_type.storage_of_type state.llvm_context fty in
+  match fty with
+  | TArr_cst _ -> with_type fty field_addr.value
+  | TUnit | TBool | TNum _ | TPtr _ | TArr_unk _ | TRecord _ | TFn _ ->
+      let v =
+        Llvm.build_load
+          llfty
+          field_addr.value
+          "record_get_load"
+          state.llvm_builder
+      in
+      with_type fty v
+
+let set_field : type a u.
+    llvm_state ->
+    (a, u) field ->
+    u typ ->
+    u ptr llvm_typed ->
+    a llvm_typed ->
+    unit llvm_typed option =
+ fun state field recty record_ptr v ->
+  let* field_addr = get_field_addr state field recty record_ptr in
+  let fty = field_type field in
+  let llfty = LLVM_type.storage_of_type state.llvm_context fty in
+  match fty with
+  | TArr_cst (_, sz) ->
+      Types.assert_const_array v.ty ~expected_size:sz ;
+      let v_arr =
+        Llvm.build_load llfty v.value "record_set_arr_load" state.llvm_builder
+      in
+      let _ = Llvm.build_store v_arr field_addr.value state.llvm_builder in
+      return_unit state
+  | TUnit | TBool | TNum _ | TPtr _ | TArr_unk _ | TRecord _ | TFn _ ->
+      let _ = Llvm.build_store v.value field_addr.value state.llvm_builder in
+      return_unit state
+
+let with_extended_env env bound f =
+  let key = Hmap.Key.create () in
+  let env = Hmap.add key bound env in
+  f env (Var key)
+
+exception Invalid_llvm_function of Llvm.llmodule * Llvm.llvalue
+
+let rec compile : type a.
+    environment -> llvm_state -> a expr -> a llvm_typed option =
+ fun env state expr ->
+  match expr with
+  | Var v -> (
+      match Hmap.find v env with
+      | None -> Format.kasprintf failwith "Variable not found"
+      | Some _ as res -> res)
+  | Let (bound, body) ->
+      let* bound = compile env state bound in
+      with_extended_env env bound (fun env bound ->
+          compile env state (body bound))
+  | Unit -> return_unit state
+  | True ->
+      with_type Types.bool
+      @@ Llvm.const_int (LLVM_type.bool_t state.llvm_context) 1
+  | False ->
+      with_type Types.bool
+      @@ Llvm.const_int (LLVM_type.bool_t state.llvm_context) 0
+  | String { strz; str } ->
+      let glob = global_string state ~z:strz str in
+      let typ = Types.(ptr i8) in
+      let target_typ = LLVM_type.storage_of_type state.llvm_context typ in
+      with_type typ
+      @@ Llvm.build_bitcast glob target_typ "cast_glob" state.llvm_builder
+  | And (l, r) ->
+      let* l = compile env state l in
+      let* r = compile env state r in
+      with_type Types.bool
+      @@ Llvm.build_and l.value r.value "bool_and" state.llvm_builder
+  | Or (l, r) ->
+      let* l = compile env state l in
+      let* r = compile env state r in
+      with_type Types.bool
+      @@ Llvm.build_or l.value r.value "bool_and" state.llvm_builder
+  | I64 i ->
+      with_type Types.i64
+      @@ Llvm.const_int (LLVM_type.int64_t state.llvm_context) (Int64.to_int i)
+  | I32 i ->
+      with_type Types.i32
+      @@ Llvm.const_int (LLVM_type.int32_t state.llvm_context) (Int32.to_int i)
+  | I16 i ->
+      with_type Types.i16
+      @@ Llvm.const_int (LLVM_type.int16_t state.llvm_context) i
+  | I8 i ->
+      with_type Types.i8
+      @@ Llvm.const_int (LLVM_type.int8_t state.llvm_context) i
+  | F64 f ->
+      with_type Types.f64
+      @@ Llvm.const_float (LLVM_type.float64_t state.llvm_context) f
+  | F32 f ->
+      with_type Types.f32
+      @@ Llvm.const_float (LLVM_type.float32_t state.llvm_context) f
+  | Add (numty, l, r) ->
+      let* l = compile env state l in
+      let* r = compile env state r in
+      let opname = Format.asprintf "%a_add" pp_numerical numty in
+      with_type (TNum numty)
+      @@ Llvm.build_add l.value r.value opname state.llvm_builder
+  | Sub (numty, l, r) ->
+      let* l = compile env state l in
+      let* r = compile env state r in
+      let opname = Format.asprintf "%a_sub" pp_numerical numty in
+      with_type (TNum numty)
+      @@ Llvm.build_sub l.value r.value opname state.llvm_builder
+  | Mul (numty, l, r) ->
+      let* l = compile env state l in
+      let* r = compile env state r in
+      let opname = Format.asprintf "%a_mul" pp_numerical numty in
+      with_type (TNum numty)
+      @@ Llvm.build_mul l.value r.value opname state.llvm_builder
+  | Div (numty, l, r) ->
+      let* l = compile env state l in
+      let* r = compile env state r in
+      let opname = Format.asprintf "%a_div" pp_numerical numty in
+      with_type (TNum numty)
+      @@ Llvm.build_sdiv l.value r.value opname state.llvm_builder
+  | Neg (numty, e) ->
+      let* e = compile env state e in
+      let opname = Format.asprintf "%a_neg" pp_numerical numty in
+      with_type (TNum numty) @@ Llvm.build_neg e.value opname state.llvm_builder
+  | Lt (numty, l, r) ->
+      let* l = compile env state l in
+      let* r = compile env state r in
+      let opname = Format.asprintf "%a_lt" pp_numerical numty in
+      with_type Types.bool
+      @@ Llvm.build_icmp Llvm.Icmp.Slt l.value r.value opname state.llvm_builder
+  | Le (numty, l, r) ->
+      let* l = compile env state l in
+      let* r = compile env state r in
+      let opname = Format.asprintf "%a_le" pp_numerical numty in
+      with_type Types.bool
+      @@ Llvm.build_icmp Llvm.Icmp.Sle l.value r.value opname state.llvm_builder
+  | Eq (numty, l, r) ->
+      let* l = compile env state l in
+      let* r = compile env state r in
+      let opname = Format.asprintf "%a_eq" pp_numerical numty in
+      with_type Types.bool
+      @@ Llvm.build_icmp Llvm.Icmp.Eq l.value r.value opname state.llvm_builder
+  | Store (ptr, v) -> (
+      let* ptr = compile env state ptr in
+      let* v = compile env state v in
+      match ptr.ty with
+      | TPtr (TArr_cst (_, sz1)) ->
+          Types.assert_const_array v.ty ~expected_size:sz1 ;
+          let llvty = LLVM_type.storage_of_type state.llvm_context v.ty in
+          let s =
+            Llvm.build_load llvty v.value "store_array_load" state.llvm_builder
+          in
+          let _ = Llvm.build_store s ptr.value state.llvm_builder in
+          return_unit state
+      | TPtr _ ->
+          let _ = Llvm.build_store v.value ptr.value state.llvm_builder in
+          return_unit state
+      | TNum _ -> .
+      | TRecord _ ->
+          (* can't be refuted because of abstract types *) assert false)
+  | Load ptr -> (
+      let* ptr = compile env state ptr in
+      match ptr.ty with
+      | TPtr typ -> (
+          match typ with
+          | TArr_cst _ -> with_type typ ptr.value
+          | _ ->
+              let llty = LLVM_type.storage_of_type state.llvm_context typ in
+              with_type typ
+              @@ Llvm.build_load llty ptr.value "load_tmp" state.llvm_builder)
+      | TRecord _ ->
+          (* can't be refuted because of abstract types *)
+          assert false
+      | _ -> .)
+  | NullPtr ty ->
+      let ptrty = Types.ptr ty in
+      let llty = LLVM_type.storage_of_type state.llvm_context ptrty in
+      with_type ptrty (Llvm.const_null llty)
+  | IsNull ptr ->
+      let* ptr = compile env state ptr in
+      let ptr =
+        Llvm.build_ptrtoint
+          ptr.value
+          (LLVM_type.int64_t state.llvm_context)
+          "ptr_to_int"
+          state.llvm_builder
+      in
+      let* zero = compile env state (I64 0L) in
+      let res =
+        Llvm.build_icmp Llvm.Icmp.Eq ptr zero.value "isnull" state.llvm_builder
+      in
+      with_type Types.bool res
+  | Get (arr, i) ->
+      get_generic env state arr i (fun addr elt_ty ->
+          match elt_ty with
+          | TArr_cst _ -> with_type elt_ty addr
+          | _ ->
+              let lletl_ty =
+                LLVM_type.storage_of_type state.llvm_context elt_ty
+              in
+              let elt =
+                Llvm.build_load lletl_ty addr "get_tmp" state.llvm_builder
+              in
+              with_type elt_ty elt)
+  | GetAddr (arr, i) ->
+      get_generic env state arr i (fun addr elt_ty ->
+          with_type (Types.ptr elt_ty) addr)
+  | Set (arr, i, v) -> (
+      let* arr = compile env state arr in
+      let* i = compile env state i in
+      let* v = compile env state v in
+      match arr.ty with
+      | TArr_cst (elt_ty, _) | TArr_unk elt_ty -> (
+          let llelt_ty = LLVM_type.storage_of_type state.llvm_context elt_ty in
+          let elt_addr =
+            Llvm.build_gep
+              llelt_ty
+              arr.value
+              [| (* zero; *) i.value |]
+              "set_gep"
+              state.llvm_builder
+          in
+          match elt_ty with
+          | TArr_cst (_, sz) ->
+              Types.assert_const_array v.ty ~expected_size:sz ;
+              let v_arr =
+                Llvm.build_load
+                  llelt_ty
+                  v.value
+                  "set_load_arr"
+                  state.llvm_builder
+              in
+              ignore @@ Llvm.build_store v_arr elt_addr state.llvm_builder ;
+              return_unit state
+          | _ ->
+              ignore @@ Llvm.build_store v.value elt_addr state.llvm_builder ;
+              return_unit state)
+      | TRecord _ -> assert false
+      | TNum _ -> .)
+  | GetField (field, record_ptr) -> (
+      let* record_ptr = compile env state record_ptr in
+      match record_ptr.ty with
+      | TPtr (TRecord _ as recty) -> get_field state field recty record_ptr
+      | _ -> assert false)
+  | GetFieldAddr (field, record_ptr) -> (
+      let* record_ptr = compile env state record_ptr in
+      match record_ptr.ty with
+      | TPtr (TRecord _ as recty) -> get_field_addr state field recty record_ptr
+      | _ -> assert false)
+  | SetField (field, record_ptr, v) -> (
+      let* record_ptr = compile env state record_ptr in
+      let* v = compile env state v in
+      match record_ptr.ty with
+      | TPtr (TRecord _ as recty) -> set_field state field recty record_ptr v
+      | _ -> assert false)
+  | Cond (cond, ift, iff) ->
+      let* cond = compile env state cond in
+      let end_of_cond_pos = Llvm.insertion_block state.llvm_builder in
+      let enclosing_func = Llvm.block_parent end_of_cond_pos in
+      (* append a basic block in the current function *)
+      let trueblock =
+        Llvm.append_block state.llvm_context "iftrue" enclosing_func
+      in
+      (* position the instruction writer at the end of that new block
+           (which is also the beginning since [iftrue] is empty) *)
+      Llvm.position_at_end trueblock state.llvm_builder ;
+      (* codegen into that block *)
+      let* bt = compile env state ift in
+      (* since [codegen_expr] can create new block, we need to get the
+           actual block we are in when finishing [codegen_expr gamma iftrue].
+           This [trueblock'] is the actual predecessor of the 'continuation'
+           block (i.e. the [phi] block). *)
+      let trueblock' = Llvm.insertion_block state.llvm_builder in
+      let falseblock =
+        Llvm.append_block state.llvm_context "iffalse" enclosing_func
+      in
+      Llvm.position_at_end falseblock state.llvm_builder ;
+      let* bf = compile env state iff in
+      let falseblock' = Llvm.insertion_block state.llvm_builder in
+      (* build conditional jump *)
+      Llvm.position_at_end end_of_cond_pos state.llvm_builder ;
+      ignore
+        (Llvm.build_cond_br cond.value trueblock falseblock state.llvm_builder) ;
+      let add_jump_to_join_from ~join ~from =
+        Llvm.position_at_end from state.llvm_builder ;
+        ignore (Llvm.build_br join state.llvm_builder)
+      in
+      (* match (bt, bf) with *)
+      (* | (None, None) -> *)
+      (*     (\* Both branches raise *\) *)
+      (*     return None *)
+      (* | (None, Some _bf) -> *)
+      (*     (\* True branch raises *\) *)
+      (*     Llvm.position_at_end falseblock' state.llvm_builder ; *)
+      (*     let phi_block = Llvm.append_block context "ifjoin" enclosing_func in *)
+      (*     (\* insert jumps from end of the 'false branch' block to the merge node. *\) *)
+      (*     add_jump_to_join_from ~join:phi_block ~from:falseblock' ; *)
+      (*     (\* Move inserter at end of join block. *\) *)
+      (*     Llvm.position_at_end phi_block state.llvm_builder ; *)
+      (*     return bf *)
+      (* | (Some _bt, None) -> *)
+      (*     (\* False branch raises *\) *)
+      (*     Llvm.position_at_end falseblock' state.llvm_builder ; *)
+      (*     let phi_block = Llvm.append_block context "ifjoin" enclosing_func in *)
+      (*     (\* insert jumps from end of the 'true branch' block to the merge node. *\) *)
+      (*     add_jump_to_join_from ~join:phi_block ~from:trueblock' ; *)
+      (*     (\* Move inserter at end of join block. *\) *)
+      (*     Llvm.position_at_end phi_block state.llvm_builder ; *)
+      (*     return bt *)
+      (* | (Some bt, Some bf) -> *)
+      Llvm.position_at_end falseblock' state.llvm_builder ;
+      let phi_block =
+        Llvm.append_block state.llvm_context "ifjoin" enclosing_func
+      in
+      Llvm.position_at_end phi_block state.llvm_builder ;
+      let incoming = List.[(bt.value, trueblock'); (bf.value, falseblock')] in
+      let phi = Llvm.build_phi incoming "phitmp" state.llvm_builder in
+      add_jump_to_join_from ~join:phi_block ~from:trueblock' ;
+      add_jump_to_join_from ~join:phi_block ~from:falseblock' ;
+      (* Move inserter at end of join block. *)
+      Llvm.position_at_end phi_block state.llvm_builder ;
+      assert (Types.type_eq bt.ty bf.ty) ;
+      with_type bt.ty phi
+  | For { init; pred; step; body } ->
+      let for_name = random_name () in
+
+      let current_block = Llvm.insertion_block state.llvm_builder in
+
+      let for_init =
+        create_block_after state current_block (sf "for_%s_init" for_name)
+      in
+      let for_entry =
+        append_to_insertion_block state (sf "for_%s_entry" for_name)
+      in
+      let for_body =
+        append_to_insertion_block state (sf "for_%s_body" for_name)
+      in
+      let for_exit =
+        append_to_insertion_block state (sf "for_%s_exit" for_name)
+      in
+
+      (* Add unconditional jump from [current_block] inherited from context to [for_init] *)
+      Llvm.position_at_end current_block state.llvm_builder ;
+      let _ = Llvm.build_br for_init state.llvm_builder in
+      (* codegen init *)
+      Llvm.position_at_end for_init state.llvm_builder ;
+      let* init = compile env state init in
+      let _ = Llvm.build_br for_entry state.llvm_builder in
+
+      let last_init_block = Llvm.insertion_block state.llvm_builder in
+
+      Llvm.position_at_end for_entry state.llvm_builder ;
+
+      let phi_ty = LLVM_type.storage_of_type state.llvm_context Types.i64 in
+      let phi =
+        Llvm.build_empty_phi
+          phi_ty
+          (sf "for_%s_phi" for_name)
+          state.llvm_builder
+      in
+      Llvm.add_incoming (init.value, last_init_block) phi ;
+      let phi_expr = { value = phi; ty = Types.i64 } in
+
+      with_extended_env env phi_expr (fun for_env for_var ->
+          let* cond = compile for_env state (pred for_var) in
+          let _ =
+            Llvm.build_cond_br cond.value for_body for_exit state.llvm_builder
+          in
+
+          Llvm.position_at_end for_body state.llvm_builder ;
+          let* _body = compile for_env state (body for_var) in
+          let* next = compile for_env state (step for_var) in
+          let _ = Llvm.build_br for_entry state.llvm_builder in
+
+          Llvm.add_incoming
+            (next.value, Llvm.insertion_block state.llvm_builder)
+            phi ;
+          Llvm.position_at_end for_exit state.llvm_builder ;
+          return_unit state)
+  | Foldi { init; acc; pred; step; body } ->
+      let foldi_name = random_name () in
+
+      let current_block = Llvm.insertion_block state.llvm_builder in
+
+      let foldi_init =
+        create_block_after state current_block (sf "foldi_%s_init" foldi_name)
+      in
+      let foldi_entry =
+        append_to_insertion_block state (sf "foldi_%s_entry" foldi_name)
+      in
+      let foldi_body =
+        append_to_insertion_block state (sf "foldi_%s_body" foldi_name)
+      in
+      let foldi_exit =
+        append_to_insertion_block state (sf "foldi_%s_exit" foldi_name)
+      in
+
+      (* Add unconditional jump from [current_block] inherited from state.llvm_context to [foldi_init] *)
+      Llvm.position_at_end current_block state.llvm_builder ;
+      let _ = Llvm.build_br foldi_init state.llvm_builder in
+      (* codegen init *)
+      Llvm.position_at_end foldi_init state.llvm_builder ;
+      let* init = compile env state init in
+      let* acc = compile env state acc in
+      let _ = Llvm.build_br foldi_entry state.llvm_builder in
+
+      let last_init_block = Llvm.insertion_block state.llvm_builder in
+
+      Llvm.position_at_end foldi_entry state.llvm_builder ;
+
+      let counter_ty = LLVM_type.storage_of_type state.llvm_context Types.i64 in
+      let phi_counter =
+        Llvm.build_empty_phi
+          counter_ty
+          (sf "foldi_%s_counter_phi" foldi_name)
+          state.llvm_builder
+      in
+      Llvm.add_incoming (init.value, last_init_block) phi_counter ;
+
+      let acc_ty = LLVM_type.storage_of_type state.llvm_context acc.ty in
+      let phi_acc =
+        Llvm.build_empty_phi
+          acc_ty
+          (sf "foldi_%s_acc_phi" foldi_name)
+          state.llvm_builder
+      in
+      Llvm.add_incoming (acc.value, last_init_block) phi_acc ;
+
+      let phi_counter_expr = { value = phi_counter; ty = Types.i64 } in
+      let phi_acc_expr = { value = phi_acc; ty = acc.ty } in
+
+      with_extended_env env phi_counter_expr @@ fun env counter_var ->
+      with_extended_env env phi_acc_expr @@ fun env acc_var ->
+      let* cond = compile env state (pred counter_var acc_var) in
+      let _ =
+        Llvm.build_cond_br cond.value foldi_body foldi_exit state.llvm_builder
+      in
+
+      Llvm.position_at_end foldi_body state.llvm_builder ;
+      let* acc' = compile env state (body counter_var acc_var) in
+      let* next = compile env state (step counter_var) in
+      let _ = Llvm.build_br foldi_entry state.llvm_builder in
+
+      Llvm.add_incoming
+        (next.value, Llvm.insertion_block state.llvm_builder)
+        phi_counter ;
+      Llvm.add_incoming
+        (acc'.value, Llvm.insertion_block state.llvm_builder)
+        phi_acc ;
+      Llvm.position_at_end foldi_exit state.llvm_builder ;
+      Option.some phi_acc_expr
+  | While (cond, body) ->
+      let while_name = random_name () in
+
+      let current_block = Llvm.insertion_block state.llvm_builder in
+
+      let while_cond =
+        append_to_insertion_block state (sf "cond_%s_body" while_name)
+      in
+      let while_body =
+        append_to_insertion_block state (sf "while_%s_body" while_name)
+      in
+      let while_exit =
+        append_to_insertion_block state (sf "while_%s_bodexit" while_name)
+      in
+
+      (* Insert phi at entry of [while_cond] *)
+      Llvm.position_at_end while_cond state.llvm_builder ;
+      let phi_ty = LLVM_type.storage_of_type state.llvm_context Types.unit in
+      let phi =
+        Llvm.build_empty_phi
+          phi_ty
+          (sf "while_%s_phi" while_name)
+          state.llvm_builder
+      in
+
+      (* Add unconditional jump from [current_block] inherited from context to [while_cond] *)
+      Llvm.position_at_end current_block state.llvm_builder ;
+      let _ = Llvm.build_br while_cond state.llvm_builder in
+      let* u = return_unit state in
+      Llvm.add_incoming (u.value, current_block) phi ;
+
+      (* Generate conditional, jump to body or to exit *)
+      Llvm.position_at_end while_cond state.llvm_builder ;
+      let* cond = compile env state cond in
+      ignore
+        (Llvm.build_cond_br cond.value while_body while_exit state.llvm_builder) ;
+
+      (* Generate loop body, jump to cond *)
+      Llvm.position_at_end while_body state.llvm_builder ;
+      let* _body = compile env state body in
+      ignore (Llvm.build_br while_cond state.llvm_builder) ;
+      Llvm.add_incoming (u.value, while_body) phi ;
+
+      Llvm.position_at_end while_exit state.llvm_builder ;
+      return_unit state
+  | Switch { e = expr; cases; default } -> (
+      let switch_name = random_name () in
+
+      let current_block = Llvm.insertion_block state.llvm_builder in
+
+      let non_default_cases = List.length cases in
+
+      let switch_entry =
+        create_block_after
+          state
+          current_block
+          (sf "switch_%s_entry" switch_name)
+      in
+
+      (* Add unconditional jump from [current_block] inherited from context to [switch_entry] *)
+      Llvm.position_at_end current_block state.llvm_builder ;
+      let _ = Llvm.build_br switch_entry state.llvm_builder in
+
+      Llvm.position_at_end switch_entry state.llvm_builder ;
+      (* Generate code for expr and switch, set default branch *)
+      let* expr = compile env state expr in
+      let end_of_switch = Llvm.insertion_block state.llvm_builder in
+
+      let cases =
+        List.mapi
+          (fun i (const, case) ->
+            let block =
+              append_to_insertion_block
+                state
+                (sf "switch_%s_case_%Ld_%d" switch_name const i)
+            in
+            (const, case, block))
+          cases
+      in
+      let default_block =
+        append_to_insertion_block
+          state
+          (sf "switch_%s_case_default" switch_name)
+      in
+      let phi_block =
+        append_to_insertion_block state (sf "switch_%s_phi" switch_name)
+      in
+
+      Llvm.position_at_end end_of_switch state.llvm_builder ;
+      let switch =
+        Llvm.build_switch
+          expr.value
+          default_block
+          non_default_cases
+          state.llvm_builder
+      in
+
+      (* Build default block *)
+      Llvm.position_at_end default_block state.llvm_builder ;
+      let default = compile env state default in
+      let () =
+        match default with
+        | None -> ()
+        | Some _ll -> ignore (Llvm.build_br phi_block state.llvm_builder)
+      in
+
+      let rec loop cases acc =
+        match cases with
+        | [] -> List.rev acc
+        | (const, case, block) :: rest -> (
+            Llvm.add_case
+              switch
+              (Llvm.const_int
+                 (LLVM_type.int64_t state.llvm_context)
+                 (Int64.to_int const))
+              block ;
+            Llvm.position_at_end block state.llvm_builder ;
+            let case = compile env state case in
+            match case with
+            | None -> loop rest acc
+            | Some case ->
+                let _ = Llvm.build_br phi_block state.llvm_builder in
+                loop
+                  rest
+                  ((case, Llvm.insertion_block state.llvm_builder) :: acc))
+      in
+
+      let non_default_cases = loop cases [] in
+      let all_cases =
+        match default with
+        | None -> non_default_cases
+        | Some default -> (default, default_block) :: non_default_cases
+      in
+      match all_cases with
+      | [] ->
+          Llvm.delete_block phi_block ;
+          None
+      | (first, _) :: _ ->
+          Llvm.position_at_end phi_block state.llvm_builder ;
+          let all_cases =
+            List.map (fun (ll, block) -> (ll.value, block)) all_cases
+          in
+          let result =
+            Llvm.build_phi
+              all_cases
+              (sf "switch_%s_phi_node" switch_name)
+              state.llvm_builder
+          in
+          with_type first.ty result)
+  | Call (fn, args) -> (
+      let* f = compile env state fn in
+      match f.ty with
+      | TFn fn ->
+          let rec loop : type s ret.
+              s fn ->
+              (s, ret expr) args ->
+              Llvm.llvalue list ->
+              ret llvm_typed option =
+           fun fn args acc ->
+            match fn with
+            | Returning retty -> (
+                match args with
+                | Args_nil ->
+                    let llretty =
+                      LLVM_type.surface_type state.llvm_context retty
+                    in
+                    let args = Array.of_list (List.rev acc) in
+                    let llfty =
+                      Llvm.function_type llretty (Array.map Llvm.type_of args)
+                    in
+                    let call =
+                      Llvm.build_call
+                        llfty
+                        f.value
+                        args
+                        "call"
+                        state.llvm_builder
+                    in
+                    with_type retty call)
+            | Arrow (_, range) -> (
+                match args with
+                | Args_cons (arg, rest) -> (
+                    let arg = compile env state arg in
+                    match arg with
+                    | None ->
+                        failwith "Call: unsound expression in argument position"
+                    | Some arg -> loop range rest (arg.value :: acc)))
+          in
+          loop fn args []
+      | _ -> assert false)
+  | Fundecl fdecl -> Some (fundecl env state fdecl)
+
+and get_generic : type a b c.
+    environment ->
+    llvm_state ->
+    (a, c) arr expr ->
+    i64 expr ->
+    (Llvm.llvalue -> a typ -> b llvm_typed option) ->
+    b llvm_typed option =
+ fun env state arr i k ->
+  let* arr = compile env state arr in
+  let* i = compile env state i in
+  match (arr.ty, i.ty) with
+  | (TArr_unk elt_ty, TNum I64_num) ->
+      let llelt_ty = LLVM_type.storage_of_type state.llvm_context elt_ty in
+      let addr =
+        Llvm.build_gep
+          llelt_ty
+          arr.value
+          [| i.value |]
+          "get_gep"
+          state.llvm_builder
+      in
+      k addr elt_ty
+  | (TArr_cst (elt_ty, _sz), TNum I64_num) ->
+      let llelt_ty = LLVM_type.storage_of_type state.llvm_context elt_ty in
+      let _zero = Llvm.const_int (LLVM_type.int64_t state.llvm_context) 0 in
+      let addr =
+        (* TODO misaligned stores/loads *)
+        (* The first [zero] to account for the fact that [arr] is actually
+             a pointer to the fixed-size array *)
+        Llvm.build_gep
+          llelt_ty
+          arr.value
+          [| (* zero; *) i.value |]
+          "get_gep"
+          state.llvm_builder
+      in
+      k addr elt_ty
+  | _ -> assert false
+
+and alloca : type s. environment -> llvm_state -> s stack -> s * environment =
+ fun (type s) env state (frame : s stack) ->
+  match frame with
+  | End_frame k -> (k, env)
+  | Local (SV_unit, rest) ->
+      let llty = LLVM_type.storage_of_type state.llvm_context Types.unit in
+      let varty = Types.(ptr unit) in
+      let llalloca = Llvm.build_alloca llty "loc" state.llvm_builder in
+      with_extended_env env { value = llalloca; ty = varty } (fun env expr ->
+          alloca env state (rest expr))
+  | Local (SV_bool, rest) ->
+      let llty = LLVM_type.storage_of_type state.llvm_context Types.bool in
+      let varty = Types.(ptr bool) in
+      let llalloca = Llvm.build_alloca llty "loc" state.llvm_builder in
+      with_extended_env env { value = llalloca; ty = varty } (fun env expr ->
+          alloca env state (rest expr))
+  | Local (SV_num n, rest) ->
+      let llty = LLVM_type.of_numerical state.llvm_context n in
+      let varty = Types.(ptr (TNum n)) in
+      let llalloca = Llvm.build_alloca llty "loc" state.llvm_builder in
+      with_extended_env env { value = llalloca; ty = varty } (fun env expr ->
+          alloca env state (rest expr))
+  | Local (SV_ptr ty, rest) ->
+      let llty = LLVM_type.storage_of_type state.llvm_context (Types.ptr ty) in
+      let varty = Types.(ptr (ptr ty)) in
+      let llalloca = Llvm.build_alloca llty "loc" state.llvm_builder in
+      with_extended_env env { value = llalloca; ty = varty } (fun env expr ->
+          alloca env state (rest expr))
+  | Local (SV_arr (ty, size), rest) -> (
+      let lltyp = LLVM_type.storage_of_type state.llvm_context ty in
+      let size = compile env state size in
+      match size with
+      | None -> failwith "Suplex.alloca: size of array is unsound"
+      | Some size ->
+          let llalloca =
+            Llvm.build_array_alloca
+              lltyp
+              size.value
+              "alloca_array"
+              state.llvm_builder
+          in
+          with_extended_env
+            env
+            { value = llalloca; ty = arr ty }
+            (fun env expr -> alloca env state (rest expr)))
+  | Local (SV_arr_cst (ty, size), rest) ->
+      let arr_ty = Types.arr_cst ty size in
+      let lltyp = LLVM_type.storage_of_type state.llvm_context arr_ty in
+      let llalloca =
+        Llvm.build_alloca lltyp "alloca_cst_array" state.llvm_builder
+      in
+      with_extended_env env { value = llalloca; ty = arr_ty } (fun env expr ->
+          alloca env state (rest expr))
+  | Local (SV_strct r, rest) ->
+      let varty = Types.seal r in
+      let llty = LLVM_type.storage_of_type state.llvm_context varty in
+      let llalloca = Llvm.build_alloca llty "loc" state.llvm_builder in
+      with_extended_env
+        env
+        { value = llalloca; ty = Types.ptr varty }
+        (fun env expr -> alloca env state (rest expr))
+
+and fundecl : type s. environment -> llvm_state -> s fundecl -> s fn llvm_typed
+    =
+ fun env state { name; sg = signature; body } ->
+  let proto = prototype state signature [] in
+  let fn = Llvm.declare_function name proto state.llvm_module in
+  let _fundecl = with_type (TFn signature) fn in
+  let params = Llvm.params fn in
+  let bb = Llvm.append_block state.llvm_context "entry" fn in
+  Llvm.position_at_end bb state.llvm_builder ;
+  let (f, env) = alloca env state body in
+  let llfn = { value = fn; ty = TFn signature } in
+  let res_opt =
+    with_extended_env env llfn (fun env fn ->
+        apply_args env state signature (Array.to_list params) (f fn))
+  in
+  match res_opt with
+  | Error `Bad_arity ->
+      failwith "fundecl: LLVM function parameters do not match declared arity"
+  | Ok None ->
+      if not (Llvm_analysis.verify_function fn) then
+        raise (Invalid_llvm_function (state.llvm_module, fn))
+      else llfn
+  | Ok (Some res) ->
+      let _ = Llvm.build_ret res state.llvm_builder in
+      if not (Llvm_analysis.verify_function fn) then
+        raise (Invalid_llvm_function (state.llvm_module, fn))
+      else llfn
+
+and apply_args : type s.
+    environment ->
+    llvm_state ->
+    s fn ->
+    Llvm.llvalue list ->
+    s ->
+    (Llvm.llvalue option, [ `Bad_arity ]) Result.t =
+ fun env state proto args f ->
+  match (proto, args) with
+  | (Returning _, []) -> (
+      let f = compile env state f in
+      match f with None -> Ok None | Some f -> Ok (Some f.value))
+  | (Arrow (typ, rest), arg :: args) ->
+      with_extended_env env { value = arg; ty = typ } (fun env arg ->
+          apply_args env state rest args (f arg))
+  | _ -> Error `Bad_arity
+
+and prototype : type s. llvm_state -> s fn -> Llvm.lltype list -> Llvm.lltype =
+ fun state proto acc ->
+  match proto with
+  | Returning ty ->
+      let retty = LLVM_type.surface_type state.llvm_context ty in
+      Llvm.function_type retty (Array.of_list (List.rev acc))
+  | Arrow (ty, rest) ->
+      let llty = LLVM_type.surface_type state.llvm_context ty in
+      prototype state rest (llty :: acc)

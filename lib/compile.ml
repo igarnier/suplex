@@ -992,18 +992,21 @@ and fundecl : type s. environment -> llvm_state -> s fundecl -> s fn llvm_typed
     with_extended_env env llfn (fun env fn ->
         apply_args env state signature (Array.to_list params) (f fn))
   in
-  match res_opt with
-  | Error `Bad_arity ->
-      failwith "fundecl: LLVM function parameters do not match declared arity"
-  | Ok None ->
-      if not (Llvm_analysis.verify_function fn) then
-        raise (Invalid_llvm_function (state.llvm_module, fn))
-      else llfn
-  | Ok (Some res) ->
-      let _ = Llvm.build_ret res (get_builder state) in
-      if not (Llvm_analysis.verify_function fn) then
-        raise (Invalid_llvm_function (state.llvm_module, fn))
-      else llfn
+  let () =
+    match res_opt with
+    | Error `Bad_arity ->
+        failwith "fundecl: LLVM function parameters do not match declared arity"
+    | Ok None ->
+        (* Function never returns *)
+        ()
+    | Ok (Some res) -> ignore (Llvm.build_ret res (get_builder state))
+  in
+  if not (Llvm_analysis.verify_function fn) then (
+    (match Llvm_analysis.verify_module state.llvm_module with
+    | None -> ()
+    | Some reason -> Format.eprintf "Incorrect module.@.%s@." reason) ;
+    raise (Invalid_llvm_function (state.llvm_module, fn)))
+  else llfn
 
 and apply_args : type s.
     environment ->

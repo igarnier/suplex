@@ -90,21 +90,34 @@ and field_eq : type a b c d. (a, b) field -> (c, d) field -> bool =
 let field_index : type a u.
     (a, u) field -> u typ -> (int option, string) Result.t =
  fun field typ ->
+  let rec field_count : type x y z u. (x, y, z, u) record_desc -> int =
+   fun desc ->
+    match desc with
+    | Record_empty -> 0
+    | Record_field { rest; _ } -> 1 + field_count rest
+    | Record_fix (_, _) -> assert false
+  in
   let rec loop : type x y z a u.
-      (a, u) field -> (x, y, z, u) record_desc -> (int option, string) Result.t
-      =
-   fun field descr ->
+      int ->
+      (a, u) field ->
+      (x, y, z, u) record_desc ->
+      (int option, string) Result.t =
+   fun field_count field descr ->
     match descr with
     | Record_empty -> Result.ok None
     | Record_field { field = f; index; rest } ->
-        if field_eq f field then Result.ok (Some index) else loop field rest
+        if field_eq f field then Result.ok (Some (field_count - index - 1))
+        else loop field_count field rest
     | Record_fix (_, _) -> Result.error "found Record_fix inside of record"
   in
   match typ with
   | TRecord { descr = Record_fix (_, f) } ->
       let descr = f typ in
-      loop field descr
-  | TRecord { descr } -> loop field descr
+      let field_count = field_count descr in
+      loop field_count field descr
+  | TRecord { descr } ->
+      let field_count = field_count descr in
+      loop field_count field descr
   | _ -> Result.error "expected a record type"
 
 let unit = TUnit

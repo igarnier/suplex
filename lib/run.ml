@@ -287,14 +287,15 @@ type _ wrapped_fundecl =
       -> ('dom -> 'range) wrapped_fundecl
 
 type _ module_ =
-  | Empty_module : unit module_
+  | Main :
+      { fdecl : 's fundecl; rel : ('s, 'dom -> 'range) fn_rel }
+      -> ('dom -> 'range) module_
   | Add_fundecl :
-      { fdecl : ('dom -> 'range) wrapped_fundecl; mdl : 'r module_ }
+      { fdecl : 's fundecl;
+        rel : ('s, 'dom -> 'range) fn_rel;
+        mdl : 's fn expr -> 'r module_
+      }
       -> ('r * ('dom -> 'range)) module_
-
-let empty_module = Empty_module
-
-let add_fundecl fdecl mdl = Add_fundecl { fdecl; mdl }
 
 type cfg = Llvm_executionengine.llcompileroptions
 
@@ -552,9 +553,12 @@ let rec prototype_of_rel : type s o c. (s, o, c) full_rel_fn -> s fn =
   | Fn_arrow (dom, range) ->
       Types.(extract_suplex dom @-> prototype_of_rel range)
 
-let fundecl name (Fn rel) def =
+let main fdecl rel = Main { fdecl; rel }
+
+let add_fundecl name (Fn rel as fn_rel) body mdl =
   let sg = prototype_of_rel rel in
-  fundecl name sg def
+  let fdecl = { name; sg; body } in
+  Add_fundecl { fdecl; rel = fn_rel; mdl }
 
 let run_module : type s. ?cfg:cfg -> ?state:Compile.llvm_state -> s module_ -> s
     =
@@ -569,12 +573,29 @@ let run_module : type s. ?cfg:cfg -> ?state:Compile.llvm_state -> s module_ -> s
   let rec loop : type s. s module_ -> environment -> s * environment =
    fun mdl env ->
     match mdl with
-    | Empty_module -> ((), env)
-    | Add_fundecl { fdecl = Fundecl { fdecl; rel = Fn rel }; mdl } -> (
-        let (rest, env) = loop mdl env in
+    | Main { fdecl; rel = Fn rel } -> (
+        let _main = Compile.fundecl env state fdecl in
+        match rel with
+        | Fn_returning _ ->
+            (* Cannot be refuted because of abstract bigarray type *)
+            assert false
+        | Fn_arrow (_, _) ->
+            let fn_ptr_typ = Foreign.funptr (extract_ctypes_fn rel) in
+            let f =
+              Llvm_executionengine.get_function_address
+                fdecl.name
+                fn_ptr_typ
+                engine
+            in
+            let f = box_ctypes_fn rel f in
+            roots := Obj.magic f :: !roots ;
+            (f, env))
+    | Add_fundecl { fdecl; rel = Fn rel; mdl } -> (
         let f = Compile.fundecl env state fdecl in
         let key = Hmap.Key.create () in
         let env = Hmap.add key f env in
+        let var = Var key in
+        let (rest, env) = loop (mdl var) env in
         match rel with
         | Fn_returning _ ->
             (* Cannot be refuted because of abstract bigarray type *)
@@ -592,6 +613,7 @@ let run_module : type s. ?cfg:cfg -> ?state:Compile.llvm_state -> s module_ -> s
             ((rest, f), env))
   in
   let (res, _) = loop mdl Hmap.empty in
+  Llvm.print_module "dump.ll" state.llvm_module ;
   let roots_count = ref (List.length !roots) in
   List.iter
     (fun root ->
@@ -605,14 +627,8 @@ let run_module : type s. ?cfg:cfg -> ?state:Compile.llvm_state -> s module_ -> s
 
 let run_program (type s tdom trange) ?cfg ?state (fdecl : s fundecl)
     (rel : (s, tdom -> trange) fn_rel) : tdom -> trange =
-  let ((), res) =
-    run_module
-      ?cfg
-      ?state
-      (Add_fundecl { fdecl = Fundecl { fdecl; rel }; mdl = Empty_module })
-  in
-  res
+  run_module ?cfg ?state (Main { fdecl; rel })
 
-let run ?cfg ?(fname = "dummy") (Fn rel as fn_rel) body =
+let run ?cfg ?(fname = "main") (Fn rel as fn_rel) body =
   let sg = prototype_of_rel rel in
   run_program ?cfg { name = fname; sg; body } fn_rel

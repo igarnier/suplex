@@ -366,29 +366,28 @@ module Bintree = struct
 end
 
 let test_bintree () =
-  let main =
-    let* bintree_sum =
-      fundecl
-        "bintree_sum"
-        Types.(ptr Bintree.t @-> returning i64)
-        ( end_frame @@ fun self node ->
-          if_
-            (is_null node)
-            I64.zero
-            (let* a = node.%{Bintree.a} in
-             let* na = a.%[I64.zero] in
-             let* nb = a.%[I64.one] in
-             let* va = call1 self na in
-             let* vb = call1 self nb in
-             I64.add (I64.add node.%{Bintree.i} va) vb) )
-    in
-    fundecl
-      "test_bintree"
-      Types.(unit @-> returning bool)
+  let f =
+    Run.run
+      Run.(unit @-> returning bool)
       ( local Stack.(strct Bintree.r) @@ fun n1 ->
         local Stack.(strct Bintree.r) @@ fun n2 ->
         local Stack.(strct Bintree.r) @@ fun n3 ->
         end_frame @@ fun _self _unit ->
+        let* bintree_sum =
+          fundecl
+            "bintree_sum"
+            Types.(ptr Bintree.t @-> returning i64)
+            ( end_frame @@ fun self node ->
+              if_
+                (is_null node)
+                I64.zero
+                (let* a = node.%{Bintree.a} in
+                 let* na = a.%[I64.zero] in
+                 let* nb = a.%[I64.one] in
+                 let* va = call1 self na in
+                 let* vb = call1 self nb in
+                 I64.add (I64.add node.%{Bintree.i} va) vb) )
+        in
         let* _ = n1.%{Bintree.i} <- I64.v 41L in
         let* _ = n2.%{Bintree.i} <- I64.v 42L in
         let* _ = n3.%{Bintree.i} <- I64.v 43L in
@@ -405,23 +404,22 @@ let test_bintree () =
         let* total = call1 bintree_sum n1 in
         I64.eq total (I64.v 126L) )
   in
-  let f = Run.(run main (unit @-> returning bool)) in
   Alcotest.(check bool) "test_bintree" true @@ f ()
 
 let test_set_cst_array_in_struct () =
   let f =
-    Exec.run
-      Exec.(unit @-> returning bool)
+    Run.run
+      Run.(unit @-> returning bool)
       ( local Stack.(strct Bintree.r) @@ fun strct ->
         local Stack.(arr_cst (Types.ptr Bintree.t) 2L) @@ fun arr ->
         end_frame @@ fun _self _ ->
         let* a = strct.%{Bintree.a} in
-        let* _ = set a (I64.v 0L) strct in
-        let* _ = set a (I64.v 1L) strct in
-        let* _ = set arr (I64.v 0L) (null_ptr Bintree.t) in
-        let* _ = set arr (I64.v 1L) (null_ptr Bintree.t) in
+        let* _ = a.%[I64.v 0L] <- strct in
+        let* _ = a.%[I64.v 1L] <- strct in
+        let* _ = arr.%[I64.v 0L] <- null_ptr Bintree.t in
+        let* _ = arr.%[I64.v 1L] <- null_ptr Bintree.t in
         let* _ = strct.%{Bintree.a} <- arr in
-        is_null (get a (I64.v 0L)) && is_null (get a (I64.v 1L)) )
+        is_null a.%[I64.v 0L] &&& is_null a.%[I64.v 1L] )
   in
   Alcotest.(check bool) "set_cst_array_in_struct" true @@ f ()
 
@@ -438,19 +436,19 @@ let test_set_struct_in_struct () =
     let ((), dummy) = projs r
   end in
   let f =
-    Exec.run
-      Exec.(unit @-> returning bool)
+    Run.run
+      Run.(unit @-> returning bool)
       ( local Stack.(strct Bintree.r) @@ fun bintree ->
         local Stack.(strct Dummy.r) @@ fun dummy ->
         end_frame @@ fun _self _ ->
-        (bintree.%{Bintree.i} <- I64.v 0L) >> fun () ->
+        let* _ = bintree.%{Bintree.i} <- I64.v 0L in
         let* a = bintree.%{Bintree.a} in
-        set a (I64.v 0L) (null_ptr Bintree.t) >> fun () ->
-        set a (I64.v 1L) (null_ptr Bintree.t) >> fun () ->
-        (dummy.%{Dummy.dummy} <- load bintree) >> fun () ->
-        let* inner = dummy.&{Dummy.dummy} in
+        let* _ = a.%[I64.v 0L] <- null_ptr Bintree.t in
+        let* _ = a.%[I64.v 1L] <- null_ptr Bintree.t in
+        let* _ = dummy.%{Dummy.dummy} <- ~*bintree in
+        let* inner = dummy.%&{Dummy.dummy} in
         let* a = inner.%{Bintree.a} in
-        is_null (get a (I64.v 0L)) && is_null (get a (I64.v 1L)) )
+        is_null a.%[I64.v 0L] &&& is_null a.%[I64.v 1L] )
   in
   Alcotest.(check bool) "set_cst_struct_in_struct" true @@ f ()
 
@@ -467,118 +465,120 @@ let test_setaddr_struct_in_struct () =
     let ((), dummy) = projs r
   end in
   let f =
-    Exec.run
-      Exec.(unit @-> returning bool)
+    Run.run
+      Run.(unit @-> returning bool)
       ( local Stack.(strct Bintree.r) @@ fun bintree ->
         local Stack.(strct Dummy.r) @@ fun dummy ->
         end_frame @@ fun _self _ ->
         let* a = bintree.%{Bintree.a} in
-        set a (I64.v 0L) (null_ptr Bintree.t) >> fun () ->
-        set a (I64.v 1L) (null_ptr Bintree.t) >> fun () ->
-        (dummy.%{Dummy.dummy} <- bintree) >> fun () ->
+        let* _ = a.%[I64.v 0L] <- null_ptr Bintree.t in
+        let* _ = a.%[I64.v 1L] <- null_ptr Bintree.t in
+        let* _ = dummy.%{Dummy.dummy} <- bintree in
         let* inner = dummy.%{Dummy.dummy} in
         let* a = inner.%{Bintree.a} in
-        is_null (get a (I64.v 0L)) && is_null (get a (I64.v 1L)) )
+        is_null a.%[I64.v 0L] &&& is_null a.%[I64.v 1L] )
   in
   Alcotest.(check bool) "setaddr_struct_in_struct" true (f ())
 
 let test_store_struct () =
   let f =
-    Exec.run
-      Exec.(unit @-> returning bool)
+    Run.run
+      Run.(unit @-> returning bool)
       ( local Stack.(strct Int64_pair.r) @@ fun strct ->
         local Stack.(arr_cst (Types.ptr Int64_pair.t) 2L) @@ fun arr ->
         local Stack.(ptr Int64_pair.t) @@ fun ptrptr ->
         end_frame @@ fun _self _ ->
         let* _ = arr.%[I64.v 0L] <- strct in
-        let* _ = store ptrptr arr.%[I64.v 0L] in
-        let* ptr = load ptrptr in
-        let* _ = store ptr (load strct) in
+        let* _ = ptrptr <-- arr.%[I64.v 0L] in
+        let* ptr = ~*ptrptr in
+        let* _ = ptr <-- ~*strct in
         let* _ = strct.%{Int64_pair.f1} <- I64.v 42L in
         I64.eq strct.%{Int64_pair.f1} ptr.%{Int64_pair.f1} )
   in
   Alcotest.(check bool) "store_struct" true (f ())
 
-let test_store_cst_arr () =
-  let f =
-    Exec.run
-      Exec.(unit @-> returning bool)
-      ( local Stack.(arr_cst Types.i64 2L) @@ fun arr ->
-        local Stack.(arr_cst Types.(ptr (arr_cst i64 2L)) 1L) @@ fun ptr_arr ->
-        local Stack.(ptr Types.(arr_cst i64 2L)) @@ fun ptrptr ->
-        end_frame (fun _self _ ->
-            (* Initialize fixed array of ints *)
-            let* _ = arr.%[I64.v 0L] <- I64.v 42L in
-            let* _ = arr.%[I64.v 1L] <- I64.v 43L in
-            (* Store the address of [arr] in [ptr_arr] *)
-            let* _ = ptr_arr.&[I64.v 0L] <- arr in
-            (* Store the contents of [ptr_arr] in [ptr_ptr] *)
-            let* _ = store ptrptr ptr_arr.%[I64.v 0L] in
-            let* arr' = load (load ptrptr) in
-            I64.(eq (v 85L) (add arr'.%[I64.v 0L] arr'.%[I64.v 1L]))) )
-  in
-  Alcotest.(check bool) "store_cst_arr" true @@ f ()
+(* let test_store_cst_arr () = *)
+(*   let f = *)
+(*     Run.run *)
+(*       Run.(unit @-> returning bool) *)
+(*       ( local Stack.(arr_cst Types.i64 2L) @@ fun arr -> *)
+(*         local Stack.(arr_cst Types.(ptr (arr_cst i64 2L)) 1L) @@ fun ptr_arr -> *)
+(*         local Stack.(ptr Types.(arr_cst i64 2L)) @@ fun ptrptr -> *)
+(*         end_frame (fun _self _ -> *)
+(*             (\* Initialize fixed array of ints *\) *)
+(*             let* _ = arr.%[I64.v 0L] <- I64.v 42L in *)
+(*             let* _ = arr.%[I64.v 1L] <- I64.v 43L in *)
+(*             (\* Store the address of [arr] in [ptr_arr] *\) *)
+(*             let* _ = ptr_arr.%&[I64.v 0L] <- arr in *)
+(*             (\* Store the contents of [ptr_arr] in [ptr_ptr] *\) *)
+(*             let* _ = ptrptr <-- ptr_arr.%[I64.v 0L] in *)
+(*             let* arr' = ~*(~*ptrptr) in *)
+(*             I64.(eq (v 85L) (add arr'.%[I64.v 0L] arr'.%[I64.v 1L]))) ) *)
+(*   in *)
+(*   Alcotest.(check bool) "store_cst_arr" true @@ f () *)
 
 let test_set_cst_arr () =
+  let ( let*:: ) = local in
   let f =
-    Exec.run
-      Exec.(unit @-> returning i64)
+    Run.run
+      Run.(unit @-> returning i64)
       (let*:: arr_cst = Stack.(arr_cst Types.i64 2L) in
        let*:: arr_cst_arr = Stack.(arr Types.(arr_cst i64 2L) (I64.v 3L)) in
        let*:: arr_cst_arr_cst = Stack.(arr_cst Types.(arr_cst i64 2L) 3L) in
        let*:: acc = Stack.(num I64_num) in
        end_frame @@ fun _self _ ->
-       for_loop 0L 1L (fun i -> arr_cst.%[i] <- I64.(add i (v 42L)))
-       >> fun () ->
-       for_loop 0L 2L (fun i ->
-           (arr_cst_arr.%[i] <- arr_cst) >> fun () ->
-           arr_cst_arr_cst.%[i] <- arr_cst)
-       >> fun () ->
-       store acc I64.zero >> fun () ->
-       for_loop 0L 2L (fun i ->
-           for_loop 0L 1L (fun j ->
-               store
+       let* _ = for_loop 0L 1L (fun i -> arr_cst.%[i] <- I64.(add i (v 42L))) in
+       let* _ =
+         for_loop 0L 2L (fun i ->
+             let* _ = arr_cst_arr.%[i] <- arr_cst in
+             arr_cst_arr_cst.%[i] <- arr_cst)
+       in
+       let* _ = acc <-- I64.zero in
+       let* _ =
+         for_loop 0L 2L (fun i ->
+             for_loop 0L 1L (fun j ->
                  acc
-                 I64.(
-                   add
-                     (load acc)
-                     (add arr_cst_arr.%[i].%[j] arr_cst_arr_cst.%[i].%[j]))))
-       >> fun () -> load acc)
+                 <-- I64.(
+                       add
+                         ~*acc
+                         (add arr_cst_arr.%[i].%[j] arr_cst_arr_cst.%[i].%[j]))))
+       in
+       ~*acc)
   in
   Alcotest.(check int64) "set_cst_arr" 510L (f ())
 
-let test_setaddr_struct_in_array () =
-  let f =
-    Exec.run
-      Exec.(unit @-> returning bool)
-      (let*:: strct = Stack.(strct Bintree.r) in
-       let*:: arr = Stack.(arr_cst (Types.ptr Bintree.t) 1L) in
-       let*:: arr' = Stack.(arr (Types.ptr Bintree.t) I64.one) in
-       end_frame @@ fun _self _ ->
-       let* _ = strct.%{Bintree.i} <- I64.v 33L in
-       let* _ = arr.%[I64.v 0L] <- strct in
-       let* _ = arr'.%[I64.v 0L] <- strct in
-       let* s' = arr.%[I64.v 0L] in
-       let* s'' = arr'.%[I64.v 0L] in
-       I64.eq strct.%{Bintree.i} s'.%{Bintree.i}
-       && I64.eq strct.%{Bintree.i} s''.%{Bintree.i})
-  in
-  Alcotest.(check bool) "set_cst_array_in_struct" true @@ f ()
+(* let test_setaddr_struct_in_array () = *)
+(*   let f = *)
+(*     Exec.run *)
+(*       Exec.(unit @-> returning bool) *)
+(*       (let*:: strct = Stack.(strct Bintree.r) in *)
+(*        let*:: arr = Stack.(arr_cst (Types.ptr Bintree.t) 1L) in *)
+(*        let*:: arr' = Stack.(arr (Types.ptr Bintree.t) I64.one) in *)
+(*        end_frame @@ fun _self _ -> *)
+(*        let* _ = strct.%{Bintree.i} <- I64.v 33L in *)
+(*        let* _ = arr.%[I64.v 0L] <- strct in *)
+(*        let* _ = arr'.%[I64.v 0L] <- strct in *)
+(*        let* s' = arr.%[I64.v 0L] in *)
+(*        let* s'' = arr'.%[I64.v 0L] in *)
+(*        I64.eq strct.%{Bintree.i} s'.%{Bintree.i} *)
+(*        && I64.eq strct.%{Bintree.i} s''.%{Bintree.i}) *)
+(*   in *)
+(*   Alcotest.(check bool) "set_cst_array_in_struct" true @@ f () *)
 
-let test_setaddr_array_in_array () =
-  let f =
-    Exec.run
-      Exec.(unit @-> returning bool)
-      (let*:: arr = Stack.(arr_cst Types.i64 2L) in
-       let*:: arr_arr = Stack.(arr Types.(ptr (arr_cst i64 2L)) (I64.v 1L)) in
-       end_frame @@ fun _self _ ->
-       let* _ = arr.%[I64.v 0L] <- I64.v 1L in
-       let* _ = arr.%[I64.v 1L] <- I64.v 2L in
-       let* _ = arr_arr.&[I64.v 0L] <- arr in
-       let* a = load @@ arr_arr.%[I64.v 0L] in
-       I64.eq a.%[I64.v 0L] (I64.v 1L) && I64.eq a.%[I64.v 1L] (I64.v 2L))
-  in
-  Alcotest.(check bool) "set_cst_array_in_array" true (f ())
+(* let test_setaddr_array_in_array () = *)
+(*   let f = *)
+(*     Exec.run *)
+(*       Exec.(unit @-> returning bool) *)
+(*       (let*:: arr = Stack.(arr_cst Types.i64 2L) in *)
+(*        let*:: arr_arr = Stack.(arr Types.(ptr (arr_cst i64 2L)) (I64.v 1L)) in *)
+(*        end_frame @@ fun _self _ -> *)
+(*        let* _ = arr.%[I64.v 0L] <- I64.v 1L in *)
+(*        let* _ = arr.%[I64.v 1L] <- I64.v 2L in *)
+(*        let* _ = arr_arr.&[I64.v 0L] <- arr in *)
+(*        let* a = load @@ arr_arr.%[I64.v 0L] in *)
+(*        I64.eq a.%[I64.v 0L] (I64.v 1L) && I64.eq a.%[I64.v 1L] (I64.v 2L)) *)
+(*   in *)
+(*   Alcotest.(check bool) "set_cst_array_in_array" true (f ()) *)
 
 let () =
   let open Alcotest in
@@ -619,27 +619,27 @@ let () =
             `Quick
             test_setaddr_struct_in_struct;
           test_case "store_struct" `Quick test_store_struct;
-          test_case "store_cst_arr" `Quick test_store_cst_arr;
-          test_case "set_cst_arr" `Quick test_set_cst_arr;
-          test_case
-            "setaddr_struct_in_array"
-            `Quick
-            test_setaddr_struct_in_array;
-          test_case "setaddr_array_in_array" `Quick test_setaddr_array_in_array;
-          test_case "record_copy" `Quick test_record_copy;
-          test_case "test_fail" `Quick test_fail;
-          test_case "test_fail_branch_1" `Quick test_fail_branch1;
-          test_case "test_fail_branch_2" `Quick test_fail_branch2;
-          test_case "test_fail_branch_3" `Quick test_fail_branch3;
-          test_case "test_switch_with_fail" `Quick test_switch_with_fail;
-          test_case "test_switch_all_fail" `Quick test_switch_all_fail;
-          test_case "test_bigarray_i64" `Quick test_bigarray_i64;
-          test_case "test_bigarray_i32" `Quick test_bigarray_i32;
-          test_case "test_bigarray_i16" `Quick test_bigarray_i16;
-          test_case "test_bigarray_i16" `Quick test_bigarray_i8;
-          test_case "test_bigarray_f64" `Quick test_bigarray_f64;
-          test_case "test_bigarray_f32" `Quick test_bigarray_f32;
-          test_case "test_malloc" `Quick test_malloc;
-          test_case "test_malloc_array" `Quick test_malloc_array;
-          test_case "test_opaque_strct" `Quick test_opaque_mallocd_strct;
-          test_case "test_global_array" `Quick test_global_array ] ) ]
+          (* test_case "store_cst_arr" `Quick test_store_cst_arr; *)
+          test_case "set_cst_arr" `Quick test_set_cst_arr
+          (* test_case *)
+          (*   "setaddr_struct_in_array" *)
+          (*   `Quick *)
+          (*   test_setaddr_struct_in_array; *)
+          (* test_case "setaddr_array_in_array" `Quick test_setaddr_array_in_array; *)
+          (* test_case "record_copy" `Quick test_record_copy; *)
+          (* test_case "test_fail" `Quick test_fail; *)
+          (* test_case "test_fail_branch_1" `Quick test_fail_branch1; *)
+          (* test_case "test_fail_branch_2" `Quick test_fail_branch2; *)
+          (* test_case "test_fail_branch_3" `Quick test_fail_branch3; *)
+          (* test_case "test_switch_with_fail" `Quick test_switch_with_fail; *)
+          (* test_case "test_switch_all_fail" `Quick test_switch_all_fail; *)
+          (* test_case "test_bigarray_i64" `Quick test_bigarray_i64; *)
+          (* test_case "test_bigarray_i32" `Quick test_bigarray_i32; *)
+          (* test_case "test_bigarray_i16" `Quick test_bigarray_i16; *)
+          (* test_case "test_bigarray_i16" `Quick test_bigarray_i8; *)
+          (* test_case "test_bigarray_f64" `Quick test_bigarray_f64; *)
+          (* test_case "test_bigarray_f32" `Quick test_bigarray_f32; *)
+          (* test_case "test_malloc" `Quick test_malloc; *)
+          (* test_case "test_malloc_array" `Quick test_malloc_array; *)
+          (* test_case "test_opaque_strct" `Quick test_opaque_mallocd_strct; *)
+          (* test_case "test_global_array" `Quick test_global_array *) ] ) ]

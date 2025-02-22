@@ -1,6 +1,8 @@
 open Types
 open Syntax
 
+let sf = Printf.sprintf
+
 module LLVM_type = struct
   type t = Llvm.lltype
 
@@ -52,7 +54,7 @@ module LLVM_type = struct
             match Hashtbl.find_opt struct_table id with
             | Some ty -> ty
             | _ ->
-                let name = Printf.sprintf "struct_%d" id in
+                let name = sf "struct_%d" id in
                 let named_strct = Llvm.named_struct_type context name in
                 Hashtbl.add struct_table id named_strct ;
                 let fields = struct_of_tuple context record_descr in
@@ -173,8 +175,6 @@ let random_name () =
   in
   String.sub long_name 0 8
 
-let sf = Printf.sprintf
-
 let ( let* ) = Option.bind
 
 let return_unit state =
@@ -259,6 +259,8 @@ let with_extended_env env bound f =
   f env (Var key)
 
 exception Invalid_llvm_function of Llvm.llmodule * Llvm.llvalue
+
+(* Invariant: expression of type array_cst is a pointer to the array on the LLVM side *)
 
 let rec compile : type a.
     environment -> llvm_state -> a expr -> a llvm_typed option =

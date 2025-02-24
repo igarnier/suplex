@@ -107,7 +107,7 @@ and ('a, 't) field = Field : { name : string; ty : 'a typ } -> ('a, 't) field
 (** {2 Expressions} *)
 
 and _ expr =
-  | Var : 'a llvm_typed Hmap.key -> 'a expr
+  | Var : 'a typed_llvm Hmap.key -> 'a expr
   | Let : 'a expr * ('a expr -> 'b expr) -> 'b expr
   | Unit : unit expr
   | True : bool expr
@@ -162,7 +162,7 @@ and _ expr =
   | Fundecl : 'a fundecl -> 'a fn expr
   | Call : 'a fn expr * ('a, 'b expr) args -> 'b expr
 
-and 'a llvm_typed = { value : Llvm.llvalue; ty : 'a typ }
+and 'a typed_llvm = { value : Llvm.llvalue; ty : 'a typ }
 
 (** {2 Function signature specification} *)
 

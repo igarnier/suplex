@@ -184,8 +184,8 @@ let get_field_addr : type a u.
     llvm_state ->
     (a, u) field ->
     u typ ->
-    u ptr llvm_typed ->
-    a ptr llvm_typed option =
+    u ptr typed_llvm ->
+    a ptr typed_llvm option =
  fun state field recty record_ptr ->
   match Types.field_index field recty with
   | Error msg -> failwith msg
@@ -212,8 +212,8 @@ let get_field : type a u.
     llvm_state ->
     (a, u) field ->
     u typ ->
-    u ptr llvm_typed ->
-    a llvm_typed option =
+    u ptr typed_llvm ->
+    a typed_llvm option =
  fun state field recty record_ptr ->
   let* field_addr = get_field_addr state field recty record_ptr in
   let fty = field_type field in
@@ -234,9 +234,9 @@ let set_field : type a u.
     llvm_state ->
     (a, u) field ->
     u typ ->
-    u ptr llvm_typed ->
-    a llvm_typed ->
-    unit llvm_typed option =
+    u ptr typed_llvm ->
+    a typed_llvm ->
+    unit typed_llvm option =
  fun state field recty record_ptr v ->
   let* field_addr = get_field_addr state field recty record_ptr in
   let fty = field_type field in
@@ -263,7 +263,7 @@ exception Invalid_llvm_function of Llvm.llmodule * Llvm.llvalue
 (* Invariant: expression of type array_cst is a pointer to the array on the LLVM side *)
 
 let rec compile : type a.
-    environment -> llvm_state -> a expr -> a llvm_typed option =
+    environment -> llvm_state -> a expr -> a typed_llvm option =
  fun env state expr ->
   match expr with
   | Var v -> (
@@ -842,7 +842,7 @@ let rec compile : type a.
               s fn ->
               (s, ret expr) args ->
               Llvm.llvalue list ->
-              ret llvm_typed option =
+              ret typed_llvm option =
            fun fn args acc ->
             match fn with
             | Returning retty -> (
@@ -882,8 +882,8 @@ and get_generic : type a b c.
     llvm_state ->
     (a, c) arr expr ->
     i64 expr ->
-    (Llvm.llvalue -> a typ -> b llvm_typed option) ->
-    b llvm_typed option =
+    (Llvm.llvalue -> a typ -> b typed_llvm option) ->
+    b typed_llvm option =
  fun env state arr i k ->
   let* arr = compile env state arr in
   let* i = compile env state i in
@@ -978,7 +978,7 @@ and alloca : type s. environment -> llvm_state -> s stack -> s * environment =
         { value = llalloca; ty = Types.ptr varty }
         (fun env expr -> alloca env state (rest expr))
 
-and fundecl : type s. environment -> llvm_state -> s fundecl -> s fn llvm_typed
+and fundecl : type s. environment -> llvm_state -> s fundecl -> s fn typed_llvm
     =
  fun env state { name; sg = signature; body } ->
   save_builder state @@ fun () ->

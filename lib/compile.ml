@@ -387,9 +387,7 @@ let rec compile : type a.
       | TPtr _ ->
           let _ = Llvm.build_store v.value ptr.value (get_builder state) in
           return_unit state
-      | TNum _ -> .
-      | TRecord _ ->
-          (* can't be refuted because of abstract types *) assert false)
+      | TNum _ -> .)
   | Load ptr -> (
       let* ptr = compile env state ptr in
       match ptr.ty with
@@ -400,9 +398,6 @@ let rec compile : type a.
               let llty = LLVM_type.storage_of_type state.llvm_context typ in
               with_type typ
               @@ Llvm.build_load llty ptr.value "load_tmp" (get_builder state))
-      | TRecord _ ->
-          (* can't be refuted because of abstract types *)
-          assert false
       | _ -> .)
   | NullPtr ty ->
       let ptrty = Types.ptr ty in
@@ -467,7 +462,6 @@ let rec compile : type a.
           | _ ->
               ignore @@ Llvm.build_store v.value elt_addr (get_builder state) ;
               return_unit state)
-      | TRecord _ -> assert false
       | TNum _ -> .)
   | GetField (field, record_ptr) -> (
       let* record_ptr = compile env state record_ptr in
@@ -873,8 +867,7 @@ let rec compile : type a.
                         failwith "Call: unsound expression in argument position"
                     | Some arg -> loop range rest (arg.value :: acc)))
           in
-          loop fn args []
-      | _ -> assert false)
+          loop fn args [])
   | Fundecl fdecl -> Some (fundecl env state fdecl)
 
 and get_generic : type a b c.
@@ -888,7 +881,7 @@ and get_generic : type a b c.
   let* arr = compile env state arr in
   let* i = compile env state i in
   match (arr.ty, i.ty) with
-  | (TArr_unk elt_ty, TNum I64_num) ->
+  | (TArr_unk elt_ty, TNum I64_num) | (TArr_cst (elt_ty, _), TNum I64_num) ->
       let llelt_ty = LLVM_type.storage_of_type state.llvm_context elt_ty in
       let addr =
         Llvm.build_gep
@@ -899,22 +892,6 @@ and get_generic : type a b c.
           (get_builder state)
       in
       k addr elt_ty
-  | (TArr_cst (elt_ty, _sz), TNum I64_num) ->
-      let llelt_ty = LLVM_type.storage_of_type state.llvm_context elt_ty in
-      let _zero = Llvm.const_int (LLVM_type.int64_t state.llvm_context) 0 in
-      let addr =
-        (* TODO misaligned stores/loads *)
-        (* The first [zero] to account for the fact that [arr] is actually
-             a pointer to the fixed-size array *)
-        Llvm.build_gep
-          llelt_ty
-          arr.value
-          [| (* zero; *) i.value |]
-          "get_gep"
-          (get_builder state)
-      in
-      k addr elt_ty
-  | _ -> assert false
 
 and alloca : type s. environment -> llvm_state -> s stack -> s * environment =
  fun (type s) env state (frame : s stack) ->

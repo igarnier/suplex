@@ -26,6 +26,8 @@ type 'a ptr = Ptr
     array has a statically known size or not. *)
 type (!'a, 'c) arr = Arr
 
+type 'a record = Record
+
 (** ['a numerical] is the type of all {b suplex} numerical types. *)
 type 'a numerical =
   | I64_num : i64 numerical
@@ -79,7 +81,9 @@ type 'a typ =
   | TPtr : 'a typ -> 'a ptr typ
   | TArr_unk : 'a typ -> ('a, [ `unk ]) arr typ
   | TArr_cst : 'a typ * int64 -> ('a, [ `cst ]) arr typ
-  | TRecord : { descr : (_, 'u Vec.t, 'u Vec.t, 't) record_desc } -> 't typ
+  | TRecord :
+      { descr : (_, 'u Vec.t, 'u Vec.t, 't record) record_desc }
+      -> 't record typ
   | TFn : 'a fn -> 'a fn typ
 
 (** [('elim, 't_acc, 't, 'u) record] is the type of record descriptors. The type
@@ -90,16 +94,20 @@ type 'a typ =
     - ['u] is the final type of the record, which will be visible after {!seal}
       is called. *)
 and ('elim, 't_acc, 't, 'u) record_desc =
-  | Record_empty : (unit, unit Vec.t, 't Vec.t, 'u) record_desc
+  | Record_empty : (unit, unit Vec.t, 't Vec.t, 'u record) record_desc
   | Record_field :
-      { field : ('a, 'u) field;
+      { field : ('a, 'u record) field;
         index : int;
-        rest : ('e, 't_acc Vec.t, 't Vec.t, 'u) record_desc
+        rest : ('e, 't_acc Vec.t, 't Vec.t, 'u record) record_desc
       }
-      -> ('e * ('a, 'u) field, ('a * 't_acc) Vec.t, 't Vec.t, 'u) record_desc
+      -> ( 'e * ('a, 'u record) field,
+           ('a * 't_acc) Vec.t,
+           't Vec.t,
+           'u record )
+         record_desc
   | Record_fix :
-      int * ('u typ -> ('b, 'd Vec.t, 'd Vec.t, 'u) record_desc)
-      -> ('b, 'd Vec.t, 'd Vec.t, 'u) record_desc
+      int * ('u record typ -> ('b, 'd Vec.t, 'd Vec.t, 'u record) record_desc)
+      -> ('b, 'd Vec.t, 'd Vec.t, 'u record) record_desc
 
 (** The type of record fields. *)
 and ('a, 't) field = Field : { name : string; ty : 'a typ } -> ('a, 't) field
@@ -136,6 +144,9 @@ and _ expr =
   | Get : ('a, 'c) arr expr * i64 expr -> 'a expr
   | GetAddr : ('a, 'c) arr expr * i64 expr -> 'a ptr expr
   | Set : ('a, 'c) arr expr * i64 expr * 'a expr -> unit expr
+  (* | SetAddr : *)
+  (*     'a addressable * ('a, 'c) arr expr * i64 expr * 'a expr *)
+  (*     -> unit expr *)
   | GetField : ('a, 'u) field * 'u ptr expr -> 'a expr
   | GetFieldAddr : ('a, 'u) field * 'u ptr expr -> 'a ptr expr
   | SetField : ('a, 'u) field * 'u ptr expr * 'a expr -> unit expr
@@ -189,7 +200,9 @@ and 'a stack_var =
   | SV_ptr : 'a typ -> 'a ptr ptr stack_var
   | SV_arr : 'a typ * i64 expr -> ('a, [ `unk ]) arr stack_var
   | SV_arr_cst : 'a typ * int64 -> ('a, [ `cst ]) arr stack_var
-  | SV_strct : (_, 'd Vec.t, 'd Vec.t, 't) record_desc -> 't ptr stack_var
+  | SV_strct :
+      (_, 'd Vec.t, 'd Vec.t, 't record) record_desc
+      -> 't record ptr stack_var
 
 (** {2 Descriptors for stacks} *)
 

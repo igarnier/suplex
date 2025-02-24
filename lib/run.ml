@@ -28,17 +28,17 @@ module type BA = sig
   type s
 
   val r :
-    ( (unit * (i64, s) field) * ((elt, [ `unk ]) arr, s) field,
+    ( (unit * (i64, s record) field) * ((elt, [ `unk ]) arr, s record) field,
       ((elt, [ `unk ]) arr * (i64 * unit)) Vec.t,
       ((elt, [ `unk ]) arr * (i64 * unit)) Vec.t,
-      s )
+      s record )
     record_desc
 
-  val s : s typ
+  val s : s record typ
 
-  val data : ((elt, [ `unk ]) arr, s) field
+  val data : ((elt, [ `unk ]) arr, s record) field
 
-  val dim : (i64, s) field
+  val dim : (i64, s record) field
 end
 
 module type BA_private = sig
@@ -48,7 +48,7 @@ module type BA_private = sig
 
   type c
 
-  val s : s typ
+  val s : s record typ
 
   val ctypes_elt_ty : c_elt Ctypes.typ
 
@@ -94,7 +94,7 @@ end) : BA_private with type elt = X.s and type c_elt = X.c = struct
 
   let r = Types.(empty_rec |+ field "dim" i64 |+ field "data" (arr elt_ty))
 
-  let s : s typ = Types.seal r
+  let s : s record typ = Types.seal r
 
   let (((), dim), data) = Types.projs r
 
@@ -176,32 +176,32 @@ type (_, _, _) full_rel =
   | Full_rel_float32 : (f32 expr, float, float) full_rel
   | Full_rel_string : (i8 ptr expr, string, string) full_rel
   | Full_rel_ba_i64 :
-      ( I64_ba.s ptr expr,
+      ( I64_ba.s record ptr expr,
         (int64, Bigarray.int64_elt, Bigarray.c_layout) Bigarray.Array1.t,
         I64_ba.c Ctypes.structure Ctypes.ptr )
       full_rel
   | Full_rel_ba_i32 :
-      ( I32_ba.s ptr expr,
+      ( I32_ba.s record ptr expr,
         (int32, Bigarray.int32_elt, Bigarray.c_layout) Bigarray.Array1.t,
         I32_ba.c Ctypes.structure Ctypes.ptr )
       full_rel
   | Full_rel_ba_i16 :
-      ( I16_ba.s ptr expr,
+      ( I16_ba.s record ptr expr,
         (int, Bigarray.int16_signed_elt, Bigarray.c_layout) Bigarray.Array1.t,
         I16_ba.c Ctypes.structure Ctypes.ptr )
       full_rel
   | Full_rel_ba_i8 :
-      ( I8_ba.s ptr expr,
+      ( I8_ba.s record ptr expr,
         (int, Bigarray.int8_signed_elt, Bigarray.c_layout) Bigarray.Array1.t,
         I8_ba.c Ctypes.structure Ctypes.ptr )
       full_rel
   | Full_rel_ba_f64 :
-      ( F64_ba.s ptr expr,
+      ( F64_ba.s record ptr expr,
         (float, Bigarray.float64_elt, Bigarray.c_layout) Bigarray.Array1.t,
         F64_ba.c Ctypes.structure Ctypes.ptr )
       full_rel
   | Full_rel_ba_f32 :
-      ( F32_ba.s ptr expr,
+      ( F32_ba.s record ptr expr,
         (float, Bigarray.float32_elt, Bigarray.c_layout) Bigarray.Array1.t,
         F32_ba.c Ctypes.structure Ctypes.ptr )
       full_rel
@@ -227,19 +227,19 @@ type (_, _, _) full_rel =
           silently replace [Full_rel_arr_cst] by this constructor to honor the
           fact that arrays are passed by-ref and not by-value *)
   | Full_rel_malloced_struct :
-      (_, 'suplex Vec.t, 'suplex Vec.t, 'u) record_desc
+      (_, 'suplex Vec.t, 'suplex Vec.t, 'u record) record_desc
       * ('suplex Vec.t, 'ocaml Vec.t, 'ctypes Vec.t) full_rel_vec
-      -> ( 'u ptr expr,
+      -> ( 'u record ptr expr,
            'ocaml Vec.t,
            'u Ctypes.structure Ctypes_static.ptr )
          full_rel
   | Full_rel_opaque_malloced_struct :
-      (_, 'suplex Vec.t, 'suplex Vec.t, 'u) record_desc
-      -> ('u ptr expr, 'u opaque, 'u opaque) full_rel
+      (_, 'suplex Vec.t, 'suplex Vec.t, 'u record) record_desc
+      -> ('u record ptr expr, 'u opaque, 'u opaque) full_rel
   | Full_rel_struct :
-      (_, 'suplex Vec.t, 'suplex Vec.t, 'u) record_desc
+      (_, 'suplex Vec.t, 'suplex Vec.t, 'u record) record_desc
       * ('suplex Vec.t, 'ocaml Vec.t, 'ctypes Vec.t) full_rel_vec
-      -> ('u expr, 'ocaml Vec.t, 'u Ctypes.structure) full_rel
+      -> ('u record expr, 'ocaml Vec.t, 'u Ctypes.structure) full_rel
 
 and (_, _, _) full_rel_vec =
   | [] : (unit Vec.t, unit Vec.t, unit Vec.t) full_rel_vec

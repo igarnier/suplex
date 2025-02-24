@@ -32,6 +32,8 @@ type 'a numerical = 'a Type_system.numerical =
   | F32_num : Type_system.f32 numerical
   | F64_num : Type_system.f64 numerical
 
+type 'a record = 'a Syntax.record = Record
+
 open Syntax
 
 let ( let* ) m f = Let (m, f)

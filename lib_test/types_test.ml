@@ -5,7 +5,7 @@ type r
 
 let test_record_desc = empty_rec |+ field "a" i8 |+ field "b" i16
 
-let test_record : r typ = seal test_record_desc
+let test_record : r record typ = seal test_record_desc
 
 let test_field_index () =
   Alcotest.(check unit)

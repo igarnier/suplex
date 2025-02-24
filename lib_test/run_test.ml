@@ -139,7 +139,7 @@ module Int64_pair = struct
 
   let r = empty_rec |+ field "x" i64 |+ field "y" i64
 
-  let t : t typ = seal r
+  let t : t record typ = seal r
 
   let (((), f1), f2) = projs r
 
@@ -154,7 +154,7 @@ module Int64_pair_pair = struct
 
   let r = empty_rec |+ field "u" Int64_pair.t |+ field "v" Int64_pair.t
 
-  let t : t typ = seal r
+  let t : t record typ = seal r
 
   let (((), f1), f2) = projs r
 
@@ -360,7 +360,7 @@ module Bintree = struct
     fix @@ fun self ->
     empty_rec |+ field "i" i64 |+ field "a" (arr_cst (ptr self) 2L)
 
-  let t : bintree typ = seal r
+  let t : bintree record typ = seal r
 
   let (((), i), a) = projs r
 end
@@ -431,7 +431,7 @@ let test_set_struct_in_struct () =
 
     let r = empty_rec |+ field "dummy" Bintree.t
 
-    let (_ : dummy typ) = seal r
+    let (_ : dummy record typ) = seal r
 
     let ((), dummy) = projs r
   end in
@@ -460,7 +460,7 @@ let test_setaddr_struct_in_struct () =
 
     let r = empty_rec |+ field "dummy" (ptr Bintree.t)
 
-    let (_ : dummy typ) = seal r
+    let (_ : dummy record typ) = seal r
 
     let ((), dummy) = projs r
   end in
@@ -509,7 +509,7 @@ let test_store_struct () =
 (*             let* _ = arr.%[I64.v 0L] <- I64.v 42L in *)
 (*             let* _ = arr.%[I64.v 1L] <- I64.v 43L in *)
 (*             (\* Store the address of [arr] in [ptr_arr] *\) *)
-(*             let* _ = ptr_arr.%&[I64.v 0L] <- arr in *)
+(*             let* _ = arr.%&[I64.v 0L] <- arr in *)
 (*             (\* Store the contents of [ptr_arr] in [ptr_ptr] *\) *)
 (*             let* _ = ptrptr <-- ptr_arr.%[I64.v 0L] in *)
 (*             let* arr' = ~*(~*ptrptr) in *)

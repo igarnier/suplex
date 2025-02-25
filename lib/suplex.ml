@@ -32,9 +32,173 @@ type 'a numerical = 'a Type_system.numerical =
   | F32_num : Type_system.f32 numerical
   | F64_num : Type_system.f64 numerical
 
+type 'a ptr = 'a Syntax.ptr = Ptr
+
 type 'a record = 'a Syntax.record = Record
 
 open Syntax
+
+type 'a expr = 'a Syntax.expr
+
+module type Numerical = sig
+  (** [t] is the numerical type. *)
+  type t
+
+  (** [v] is the type of constant values. *)
+  type v
+
+  (** Witness that [t] is a numerical type. *)
+  val n : t Syntax.numerical
+
+  (** [v c] is a constant equal to [c]. *)
+  val v : v -> t expr
+
+  val add : t expr -> t expr -> t expr
+
+  val sub : t expr -> t expr -> t expr
+
+  val mul : t expr -> t expr -> t expr
+
+  val div : t expr -> t expr -> t expr
+
+  val neg : t expr -> t expr
+
+  val lt : t expr -> t expr -> bool expr
+
+  val le : t expr -> t expr -> bool expr
+
+  val eq : t expr -> t expr -> bool expr
+
+  val zero : t expr
+
+  val one : t expr
+end
+
+module Make_numerical (Num : sig
+  type t
+
+  type v
+
+  val v : v -> t expr
+
+  val n : t numerical
+
+  val zero : t expr
+
+  val one : t expr
+end) : Numerical with type t = Num.t and type v = Num.v = struct
+  type t = Num.t
+
+  type v = Num.v
+
+  let n = Num.n
+
+  let v = Num.v
+
+  let zero = Num.zero
+
+  let one = Num.one
+
+  let add a b = Add (Num.n, a, b)
+
+  let sub a b = Sub (Num.n, a, b)
+
+  let mul a b = Mul (Num.n, a, b)
+
+  let div a b = Div (Num.n, a, b)
+
+  let neg a = Neg (Num.n, a)
+
+  let lt a b = Lt (Num.n, a, b)
+
+  let le a b = Le (Num.n, a, b)
+
+  let eq a b = Eq (Num.n, a, b)
+end
+
+module I64 = Make_numerical (struct
+  type t = i64
+
+  type v = int64
+
+  let v x = I64 x
+
+  let n = I64_num
+
+  let zero = v 0L
+
+  let one = v 1L
+end)
+
+module I32 = Make_numerical (struct
+  type t = i32
+
+  type v = int32
+
+  let v x = I32 x
+
+  let n = I32_num
+
+  let zero = v 0l
+
+  let one = v 1l
+end)
+
+module I16 = Make_numerical (struct
+  type t = i16
+
+  type v = int
+
+  let v x = I16 x
+
+  let n = I16_num
+
+  let zero = v 0
+
+  let one = v 1
+end)
+
+module I8 = Make_numerical (struct
+  type t = i8
+
+  type v = int
+
+  let v x = I8 x
+
+  let n = I8_num
+
+  let zero = v 0
+
+  let one = v 1
+end)
+
+module F64 = Make_numerical (struct
+  type t = f64
+
+  type v = float
+
+  let v x = F64 x
+
+  let n = F64_num
+
+  let zero = v 0.0
+
+  let one = v 1.0
+end)
+
+module F32 = Make_numerical (struct
+  type t = f32
+
+  type v = float
+
+  let v x = F32 x
+
+  let n = F32_num
+
+  let zero = v 0.0
+
+  let one = v 1.0
+end)
 
 let ( let* ) m f = Let (m, f)
 
@@ -49,28 +213,6 @@ let string ?(strz = false) str = String { strz; str }
 let ( &&& ) a b = And (a, b)
 
 let ( ||| ) a b = Or (a, b)
-
-module I64 = struct
-  let v x = I64 x
-
-  let zero = v 0L
-
-  let one = v 1L
-
-  let add a b = Add (I64_num, a, b)
-
-  let sub a b = Sub (I64_num, a, b)
-
-  let mul a b = Mul (I64_num, a, b)
-
-  let div a b = Div (I64_num, a, b)
-
-  let lt a b = Lt (I64_num, a, b)
-
-  let le a b = Le (I64_num, a, b)
-
-  let eq a b = Eq (I64_num, a, b)
-end
 
 let ( <-- ) a b = Store (a, b)
 
@@ -113,6 +255,12 @@ let call3 f arg1 arg2 arg3 =
 
 let arg a rest = Args_cons (a, rest)
 
+let addr_of arr = AddrOf (Addressable_array, arr)
+
+let ptr_eq a b = PtrEq (a, b)
+
+let fail msg = Fail msg
+
 let rec block cmds =
   match cmds with
   | [] -> unit
@@ -125,12 +273,25 @@ module Stack = Syntax.Stack
 
 let local var f = Local (var, f)
 
+let ( let*:: ) = local
+
 let end_frame k = End_frame k
 
 let fundecl name typ body = Syntax.Fundecl (Syntax.fundecl name typ body)
 
 module Run = struct
   open Run
+
+  module type BA = Run.BA
+
+  module I64_ba = Run.I64_ba
+  module I32_ba = Run.I32_ba
+  module I16_ba = Run.I16_ba
+  module I8_ba = Run.I8_ba
+  module F64_ba = Run.F64_ba
+  module F32_ba = Run.F32_ba
+
+  type ('suplex, 'ocaml) rel = ('suplex, 'ocaml) Run.rel
 
   let empty = Vec []
 

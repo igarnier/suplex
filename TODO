@@ -1,3 +1,4 @@
+- SetAddr via ['a addressable] type?
 - allow stack frame size to depend on function parameters?
 - allow nested function definition (save instr builder position)
 - proper alignment in load/store/alloca

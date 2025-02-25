@@ -112,6 +112,11 @@ and ('elim, 't_acc, 't, 'u) record_desc =
 (** The type of record fields. *)
 and ('a, 't) field = Field : { name : string; ty : 'a typ } -> ('a, 't) field
 
+(** For some values, we can take their addresses. *)
+and 'a addressable =
+  (* | Addressable_record : 'a record typ -> 'a record addressable *)
+  | Addressable_array : ('a, [ `cst ]) arr addressable
+
 (** {2 Expressions} *)
 
 and _ expr =
@@ -137,16 +142,15 @@ and _ expr =
   | Lt : 'a numerical * 'a expr * 'a expr -> bool expr
   | Le : 'a numerical * 'a expr * 'a expr -> bool expr
   | Eq : 'a numerical * 'a expr * 'a expr -> bool expr
+  | PtrEq : 'a ptr expr * 'a ptr expr -> bool expr
   | Store : 'a ptr expr * 'a expr -> unit expr
   | Load : 'a ptr expr -> 'a expr
   | NullPtr : 'a typ -> 'a ptr expr
   | IsNull : 'a ptr expr -> bool expr
+  | AddrOf : 'a addressable * 'a expr -> 'a ptr expr
   | Get : ('a, 'c) arr expr * i64 expr -> 'a expr
   | GetAddr : ('a, 'c) arr expr * i64 expr -> 'a ptr expr
   | Set : ('a, 'c) arr expr * i64 expr * 'a expr -> unit expr
-  (* | SetAddr : *)
-  (*     'a addressable * ('a, 'c) arr expr * i64 expr * 'a expr *)
-  (*     -> unit expr *)
   | GetField : ('a, 'u) field * 'u ptr expr -> 'a expr
   | GetFieldAddr : ('a, 'u) field * 'u ptr expr -> 'a ptr expr
   | SetField : ('a, 'u) field * 'u ptr expr * 'a expr -> unit expr
@@ -172,6 +176,7 @@ and _ expr =
       -> 'a expr
   | Fundecl : 'a fundecl -> 'a fn expr
   | Call : 'a fn expr * ('a, 'b expr) args -> 'b expr
+  | Fail : string -> 'a expr
 
 and 'a typed_llvm = { value : Llvm.llvalue; ty : 'a typ }
 

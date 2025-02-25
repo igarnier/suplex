@@ -100,6 +100,10 @@ module LLVM_type = struct
     | _ -> storage_of_type context typ
 end
 
+let is_floating_point : type a. a numerical -> bool =
+ fun (type a) (typ : a numerical) ->
+  match typ with F32_num | F64_num -> true | _ -> false
+
 module SMap = Map.Make (String)
 
 type llvm_state =
@@ -157,6 +161,14 @@ let global_string (state : llvm_state) ~z s =
       in
       Hashtbl.add state.const_strings s llglob ;
       llglob
+
+let string (state : llvm_state) ?(z = true) s =
+  let glob = global_string state ~z s in
+  let typ = Types.(ptr i8) in
+  let target_typ = LLVM_type.storage_of_type state.llvm_context typ in
+  with_type
+    typ
+    (Llvm.build_bitcast glob target_typ "cast_glob" (get_builder state))
 
 let create_block_after state block name =
   let new_block = Llvm.insert_block state.llvm_context name block in
@@ -319,26 +331,42 @@ let rec compile : type a.
       let* l = compile env state l in
       let* r = compile env state r in
       let opname = Format.asprintf "%a_add" pp_numerical numty in
-      with_type (TNum numty)
-      @@ Llvm.build_add l.value r.value opname (get_builder state)
+      let instr =
+        if is_floating_point numty then
+          Llvm.build_fadd l.value r.value opname (get_builder state)
+        else Llvm.build_add l.value r.value opname (get_builder state)
+      in
+      with_type (TNum numty) instr
   | Sub (numty, l, r) ->
       let* l = compile env state l in
       let* r = compile env state r in
       let opname = Format.asprintf "%a_sub" pp_numerical numty in
-      with_type (TNum numty)
-      @@ Llvm.build_sub l.value r.value opname (get_builder state)
+      let instr =
+        if is_floating_point numty then
+          Llvm.build_fadd l.value r.value opname (get_builder state)
+        else Llvm.build_add l.value r.value opname (get_builder state)
+      in
+      with_type (TNum numty) instr
   | Mul (numty, l, r) ->
       let* l = compile env state l in
       let* r = compile env state r in
       let opname = Format.asprintf "%a_mul" pp_numerical numty in
-      with_type (TNum numty)
-      @@ Llvm.build_mul l.value r.value opname (get_builder state)
+      let instr =
+        if is_floating_point numty then
+          Llvm.build_fmul l.value r.value opname (get_builder state)
+        else Llvm.build_mul l.value r.value opname (get_builder state)
+      in
+      with_type (TNum numty) instr
   | Div (numty, l, r) ->
       let* l = compile env state l in
       let* r = compile env state r in
       let opname = Format.asprintf "%a_div" pp_numerical numty in
-      with_type (TNum numty)
-      @@ Llvm.build_sdiv l.value r.value opname (get_builder state)
+      let instr =
+        if is_floating_point numty then
+          Llvm.build_fdiv l.value r.value opname (get_builder state)
+        else Llvm.build_sdiv l.value r.value opname (get_builder state)
+      in
+      with_type (TNum numty) instr
   | Neg (numty, e) ->
       let* e = compile env state e in
       let opname = Format.asprintf "%a_neg" pp_numerical numty in
@@ -348,30 +376,85 @@ let rec compile : type a.
       let* l = compile env state l in
       let* r = compile env state r in
       let opname = Format.asprintf "%a_lt" pp_numerical numty in
-      with_type Types.bool
-      @@ Llvm.build_icmp
-           Llvm.Icmp.Slt
-           l.value
-           r.value
-           opname
-           (get_builder state)
+      let instr =
+        if is_floating_point numty then
+          Llvm.build_fcmp
+            Llvm.Fcmp.Olt
+            l.value
+            r.value
+            opname
+            (get_builder state)
+        else
+          Llvm.build_icmp
+            Llvm.Icmp.Slt
+            l.value
+            r.value
+            opname
+            (get_builder state)
+      in
+      with_type Types.bool instr
   | Le (numty, l, r) ->
       let* l = compile env state l in
       let* r = compile env state r in
       let opname = Format.asprintf "%a_le" pp_numerical numty in
-      with_type Types.bool
-      @@ Llvm.build_icmp
-           Llvm.Icmp.Sle
-           l.value
-           r.value
-           opname
-           (get_builder state)
+      let instr =
+        if is_floating_point numty then
+          Llvm.build_fcmp
+            Llvm.Fcmp.Ole
+            l.value
+            r.value
+            opname
+            (get_builder state)
+        else
+          Llvm.build_icmp
+            Llvm.Icmp.Sle
+            l.value
+            r.value
+            opname
+            (get_builder state)
+      in
+      with_type Types.bool instr
   | Eq (numty, l, r) ->
       let* l = compile env state l in
       let* r = compile env state r in
       let opname = Format.asprintf "%a_eq" pp_numerical numty in
+      let instr =
+        if is_floating_point numty then
+          Llvm.build_fcmp
+            Llvm.Fcmp.Oeq
+            l.value
+            r.value
+            opname
+            (get_builder state)
+        else
+          Llvm.build_icmp
+            Llvm.Icmp.Eq
+            l.value
+            r.value
+            opname
+            (get_builder state)
+      in
+      with_type Types.bool instr
+  | PtrEq (l, r) ->
+      let* l = compile env state l in
+      let* r = compile env state r in
+      let lptr =
+        Llvm.build_ptrtoint
+          l.value
+          (LLVM_type.int64_t state.llvm_context)
+          "ptr_to_int"
+          (get_builder state)
+      in
+      let rptr =
+        Llvm.build_ptrtoint
+          r.value
+          (LLVM_type.int64_t state.llvm_context)
+          "ptr_to_int"
+          (get_builder state)
+      in
+      let opname = "ptr_eq" in
       with_type Types.bool
-      @@ Llvm.build_icmp Llvm.Icmp.Eq l.value r.value opname (get_builder state)
+      @@ Llvm.build_icmp Llvm.Icmp.Eq lptr rptr opname (get_builder state)
   | Store (ptr, v) -> (
       let* ptr = compile env state ptr in
       let* v = compile env state v in
@@ -417,6 +500,12 @@ let rec compile : type a.
         Llvm.build_icmp Llvm.Icmp.Eq ptr zero.value "isnull" (get_builder state)
       in
       with_type Types.bool res
+  | AddrOf (addressable, e) -> (
+      let* e = compile env state e in
+      match addressable with
+      | Addressable_array -> (
+          match e.ty with
+          | TArr_cst (_, _) -> with_type (Types.ptr e.ty) e.value))
   | Get (arr, i) ->
       get_generic env state arr i (fun addr elt_ty ->
           match elt_ty with
@@ -491,7 +580,7 @@ let rec compile : type a.
            (which is also the beginning since [iftrue] is empty) *)
       Llvm.position_at_end trueblock (get_builder state) ;
       (* codegen into that block *)
-      let* bt = compile env state ift in
+      let bt = compile env state ift in
       (* since [codegen_expr] can create new block, we need to get the
            actual block we are in when finishing [codegen_expr gamma iftrue].
            This [trueblock'] is the actual predecessor of the 'continuation'
@@ -501,7 +590,7 @@ let rec compile : type a.
         Llvm.append_block state.llvm_context "iffalse" enclosing_func
       in
       Llvm.position_at_end falseblock (get_builder state) ;
-      let* bf = compile env state iff in
+      let bf = compile env state iff in
       let falseblock' = Llvm.insertion_block (get_builder state) in
       (* build conditional jump *)
       Llvm.position_at_end end_of_cond_pos (get_builder state) ;
@@ -511,42 +600,50 @@ let rec compile : type a.
         Llvm.position_at_end from (get_builder state) ;
         ignore (Llvm.build_br join (get_builder state))
       in
-      (* match (bt, bf) with *)
-      (* | (None, None) -> *)
-      (*     (\* Both branches raise *\) *)
-      (*     return None *)
-      (* | (None, Some _bf) -> *)
-      (*     (\* True branch raises *\) *)
-      (*     Llvm.position_at_end falseblock' (get_builder state) ; *)
-      (*     let phi_block = Llvm.append_block context "ifjoin" enclosing_func in *)
-      (*     (\* insert jumps from end of the 'false branch' block to the merge node. *\) *)
-      (*     add_jump_to_join_from ~join:phi_block ~from:falseblock' ; *)
-      (*     (\* Move inserter at end of join block. *\) *)
-      (*     Llvm.position_at_end phi_block (get_builder state) ; *)
-      (*     return bf *)
-      (* | (Some _bt, None) -> *)
-      (*     (\* False branch raises *\) *)
-      (*     Llvm.position_at_end falseblock' (get_builder state) ; *)
-      (*     let phi_block = Llvm.append_block context "ifjoin" enclosing_func in *)
-      (*     (\* insert jumps from end of the 'true branch' block to the merge node. *\) *)
-      (*     add_jump_to_join_from ~join:phi_block ~from:trueblock' ; *)
-      (*     (\* Move inserter at end of join block. *\) *)
-      (*     Llvm.position_at_end phi_block (get_builder state) ; *)
-      (*     return bt *)
-      (* | (Some bt, Some bf) -> *)
-      Llvm.position_at_end falseblock' (get_builder state) ;
-      let phi_block =
-        Llvm.append_block state.llvm_context "ifjoin" enclosing_func
-      in
-      Llvm.position_at_end phi_block (get_builder state) ;
-      let incoming = List.[(bt.value, trueblock'); (bf.value, falseblock')] in
-      let phi = Llvm.build_phi incoming "phitmp" (get_builder state) in
-      add_jump_to_join_from ~join:phi_block ~from:trueblock' ;
-      add_jump_to_join_from ~join:phi_block ~from:falseblock' ;
-      (* Move inserter at end of join block. *)
-      Llvm.position_at_end phi_block (get_builder state) ;
-      assert (Types.type_eq bt.ty bf.ty) ;
-      with_type bt.ty phi
+      begin
+        match (bt, bf) with
+        | (None, None) ->
+            (* Both branches raise *)
+            None
+        | (None, Some _bf) ->
+            (* True branch raises *)
+            Llvm.position_at_end falseblock' (get_builder state) ;
+            let phi_block =
+              Llvm.append_block state.llvm_context "ifjoin" enclosing_func
+            in
+            (* insert jumps from end of the 'false branch' block to the merge node. *)
+            add_jump_to_join_from ~join:phi_block ~from:falseblock' ;
+            (* Move inserter at end of join block. *)
+            Llvm.position_at_end phi_block (get_builder state) ;
+            bf
+        | (Some _bt, None) ->
+            (* False branch raises *)
+            Llvm.position_at_end falseblock' (get_builder state) ;
+            let phi_block =
+              Llvm.append_block state.llvm_context "ifjoin" enclosing_func
+            in
+            (* insert jumps from end of the 'true branch' block to the merge node. *)
+            add_jump_to_join_from ~join:phi_block ~from:trueblock' ;
+            (* Move inserter at end of join block. *)
+            Llvm.position_at_end phi_block (get_builder state) ;
+            bt
+        | (Some bt, Some bf) ->
+            Llvm.position_at_end falseblock' (get_builder state) ;
+            let phi_block =
+              Llvm.append_block state.llvm_context "ifjoin" enclosing_func
+            in
+            Llvm.position_at_end phi_block (get_builder state) ;
+            let incoming =
+              List.[(bt.value, trueblock'); (bf.value, falseblock')]
+            in
+            let phi = Llvm.build_phi incoming "phitmp" (get_builder state) in
+            add_jump_to_join_from ~join:phi_block ~from:trueblock' ;
+            add_jump_to_join_from ~join:phi_block ~from:falseblock' ;
+            (* Move inserter at end of join block. *)
+            Llvm.position_at_end phi_block (get_builder state) ;
+            assert (Types.type_eq bt.ty bf.ty) ;
+            with_type bt.ty phi
+      end
   | For { init; pred; step; body } ->
       let for_name = random_name () in
 
@@ -869,6 +966,20 @@ let rec compile : type a.
           in
           loop fn args [])
   | Fundecl fdecl -> Some (fundecl env state fdecl)
+  | Fail msg ->
+      let fptr =
+        match Llvm.lookup_function "failwith" state.llvm_module with
+        | None -> failwith "Suplex: failwith not visible from LLVM"
+        | Some fptr -> fptr
+      in
+      let* s = string state ~z:true msg in
+      let llretty = LLVM_type.surface_type state.llvm_context TUnit in
+      let llfty = Llvm.function_type llretty [| Llvm.type_of s.value |] in
+      let _call =
+        Llvm.build_call llfty fptr [| s.value |] "call" (get_builder state)
+      in
+      let _unr = Llvm.build_unreachable (get_builder state) in
+      None
 
 and get_generic : type a b c.
     environment ->

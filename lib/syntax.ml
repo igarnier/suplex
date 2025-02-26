@@ -151,9 +151,9 @@ and _ expr =
   | Get : ('a, 'c) arr expr * i64 expr -> 'a expr
   | GetAddr : ('a, 'c) arr expr * i64 expr -> 'a ptr expr
   | Set : ('a, 'c) arr expr * i64 expr * 'a expr -> unit expr
-  | GetField : ('a, 'u) field * 'u ptr expr -> 'a expr
-  | GetFieldAddr : ('a, 'u) field * 'u ptr expr -> 'a ptr expr
-  | SetField : ('a, 'u) field * 'u ptr expr * 'a expr -> unit expr
+  | GetField : ('a, 'u record) field * 'u record ptr expr -> 'a expr
+  | GetFieldAddr : ('a, 'u record) field * 'u record ptr expr -> 'a ptr expr
+  | SetField : ('a, 'u record) field * 'u record ptr expr * 'a expr -> unit expr
   | Cond : bool expr * 'a expr * 'a expr -> 'a expr
   | For :
       { init : i64 expr;

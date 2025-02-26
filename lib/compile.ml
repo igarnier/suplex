@@ -555,19 +555,17 @@ let rec compile : type a.
   | GetField (field, record_ptr) -> (
       let* record_ptr = compile env state record_ptr in
       match record_ptr.ty with
-      | TPtr (TRecord _ as recty) -> get_field state field recty record_ptr
-      | _ -> assert false)
+      | TPtr (TRecord _ as recty) -> get_field state field recty record_ptr)
   | GetFieldAddr (field, record_ptr) -> (
       let* record_ptr = compile env state record_ptr in
       match record_ptr.ty with
       | TPtr (TRecord _ as recty) -> get_field_addr state field recty record_ptr
-      | _ -> assert false)
+      )
   | SetField (field, record_ptr, v) -> (
       let* record_ptr = compile env state record_ptr in
       let* v = compile env state v in
       match record_ptr.ty with
-      | TPtr (TRecord _ as recty) -> set_field state field recty record_ptr v
-      | _ -> assert false)
+      | TPtr (TRecord _ as recty) -> set_field state field recty record_ptr v)
   | Cond (cond, ift, iff) ->
       let* cond = compile env state cond in
       let end_of_cond_pos = Llvm.insertion_block (get_builder state) in

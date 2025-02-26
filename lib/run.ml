@@ -176,32 +176,32 @@ type (_, _, _) full_rel =
   | Full_rel_float32 : (f32 expr, float, float) full_rel
   | Full_rel_string : (i8 ptr expr, string, string) full_rel
   | Full_rel_ba_i64 :
-      ( I64_ba.s record ptr expr,
+      ( I64_ba.s record expr,
         (int64, Bigarray.int64_elt, Bigarray.c_layout) Bigarray.Array1.t,
         I64_ba.c Ctypes.structure Ctypes.ptr )
       full_rel
   | Full_rel_ba_i32 :
-      ( I32_ba.s record ptr expr,
+      ( I32_ba.s record expr,
         (int32, Bigarray.int32_elt, Bigarray.c_layout) Bigarray.Array1.t,
         I32_ba.c Ctypes.structure Ctypes.ptr )
       full_rel
   | Full_rel_ba_i16 :
-      ( I16_ba.s record ptr expr,
+      ( I16_ba.s record expr,
         (int, Bigarray.int16_signed_elt, Bigarray.c_layout) Bigarray.Array1.t,
         I16_ba.c Ctypes.structure Ctypes.ptr )
       full_rel
   | Full_rel_ba_i8 :
-      ( I8_ba.s record ptr expr,
+      ( I8_ba.s record expr,
         (int, Bigarray.int8_signed_elt, Bigarray.c_layout) Bigarray.Array1.t,
         I8_ba.c Ctypes.structure Ctypes.ptr )
       full_rel
   | Full_rel_ba_f64 :
-      ( F64_ba.s record ptr expr,
+      ( F64_ba.s record expr,
         (float, Bigarray.float64_elt, Bigarray.c_layout) Bigarray.Array1.t,
         F64_ba.c Ctypes.structure Ctypes.ptr )
       full_rel
   | Full_rel_ba_f32 :
-      ( F32_ba.s record ptr expr,
+      ( F32_ba.s record expr,
         (float, Bigarray.float32_elt, Bigarray.c_layout) Bigarray.Array1.t,
         F32_ba.c Ctypes.structure Ctypes.ptr )
       full_rel
@@ -229,13 +229,13 @@ type (_, _, _) full_rel =
   | Full_rel_malloced_struct :
       (_, 'suplex Vec.t, 'suplex Vec.t, 'u record) record_desc
       * ('suplex Vec.t, 'ocaml Vec.t, 'ctypes Vec.t) full_rel_vec
-      -> ( 'u record ptr expr,
+      -> ( 'u record expr,
            'ocaml Vec.t,
            'u Ctypes.structure Ctypes_static.ptr )
          full_rel
   | Full_rel_opaque_malloced_struct :
       (_, 'suplex Vec.t, 'suplex Vec.t, 'u record) record_desc
-      -> ('u record ptr expr, 'u opaque, 'u opaque) full_rel
+      -> ('u record expr, 'u opaque, 'u opaque) full_rel
   | Full_rel_struct :
       (_, 'suplex Vec.t, 'suplex Vec.t, 'u record) record_desc
       * ('suplex Vec.t, 'ocaml Vec.t, 'ctypes Vec.t) full_rel_vec
@@ -531,19 +531,19 @@ let rec extract_suplex : type s o c. (s expr, o, c) full_rel -> s typ =
   | Full_rel_float64 -> Types.f64
   | Full_rel_float32 -> Types.f32
   | Full_rel_string -> Types.ptr Types.i8
-  | Full_rel_ba_i64 -> Types.ptr I64_ba.s
-  | Full_rel_ba_i32 -> Types.ptr I32_ba.s
-  | Full_rel_ba_i16 -> Types.ptr I16_ba.s
-  | Full_rel_ba_i8 -> Types.ptr I8_ba.s
-  | Full_rel_ba_f64 -> Types.ptr F64_ba.s
-  | Full_rel_ba_f32 -> Types.ptr F32_ba.s
+  | Full_rel_ba_i64 -> I64_ba.s
+  | Full_rel_ba_i32 -> I32_ba.s
+  | Full_rel_ba_i16 -> I16_ba.s
+  | Full_rel_ba_i8 -> I8_ba.s
+  | Full_rel_ba_f64 -> F64_ba.s
+  | Full_rel_ba_f32 -> F32_ba.s
   | Full_rel_arr_unk r -> Types.arr (extract_suplex r)
   | Full_rel_arr_cst (len, r) ->
       Types.arr_cst (extract_suplex r) (Int64.of_int len)
   | Full_rel_arr_cst_toplevel (len, r) ->
       Types.arr_cst (extract_suplex r) (Int64.of_int len)
-  | Full_rel_malloced_struct (r, _) -> Types.ptr (Types.seal r)
-  | Full_rel_opaque_malloced_struct r -> Types.ptr (Types.seal r)
+  | Full_rel_malloced_struct (r, _) -> Types.seal r
+  | Full_rel_opaque_malloced_struct r -> Types.seal r
   | Full_rel_struct (r, _) -> Types.seal r
 
 let rec prototype_of_rel : type s o c. (s, o, c) full_rel_fn -> s fn =

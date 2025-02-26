@@ -14,23 +14,27 @@ let test_field_index () =
     begin
       (match field_index (field "a" i8) test_record with
       | Ok (Some 0) -> ()
-      | Ok (Some i) -> Alcotest.failf "field_index failed: got index %d" i
+      | Ok (Some i) ->
+          Alcotest.failf "field_index failed: got index %d for .a" i
       | _ -> Alcotest.fail "field_index failed") ;
 
       (match field_index (field "b" i16) test_record with
       | Ok (Some 1) -> ()
-      | Ok (Some i) -> Alcotest.failf "field_index failed: got index %d" i
+      | Ok (Some i) ->
+          Alcotest.failf "field_index failed: got index %d for .b" i
       | _ -> Alcotest.fail "field_index failed") ;
 
       (match field_index (field "a" i16) test_record with
       | Ok None -> ()
-      | Ok (Some i) -> Alcotest.failf "field_index failed: got index %d" i
-      | _ -> Alcotest.fail "field_index failed") ;
+      | Ok (Some i) ->
+          Alcotest.failf "field_index failed: got index %d for .a" i
+      | Error msg -> Alcotest.failf "field_index failed (%s)" msg) ;
 
       match field_index (field "c" i8) test_record with
       | Ok None -> ()
-      | Ok (Some i) -> Alcotest.failf "field_index failed: got index %d" i
-      | _ -> Alcotest.fail "field_index failed"
+      | Ok (Some i) ->
+          Alcotest.failf "field_index failed: got index %d for .c" i
+      | Error msg -> Alcotest.failf "field_index failed (%s)" msg
     end
 
 let test_proj () =

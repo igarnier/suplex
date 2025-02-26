@@ -97,6 +97,7 @@ module LLVM_type = struct
    fun context (typ : a typ) : t ->
     match typ with
     | TArr_cst _ -> storage_of_type context (TPtr typ)
+    | TRecord _ -> storage_of_type context (TPtr typ)
     | _ -> storage_of_type context typ
 end
 
@@ -194,9 +195,9 @@ let return_unit state =
 
 let get_field_addr : type a u.
     llvm_state ->
-    (a, u) field ->
-    u typ ->
-    u ptr typed_llvm ->
+    (a, u record) field ->
+    u record typ ->
+    u record typed_llvm ->
     a ptr typed_llvm option =
  fun state field recty record_ptr ->
   match Types.field_index field recty with
@@ -222,17 +223,17 @@ let get_field_addr : type a u.
 
 let get_field : type a u.
     llvm_state ->
-    (a, u) field ->
-    u typ ->
-    u ptr typed_llvm ->
+    (a, u record) field ->
+    u record typ ->
+    u record typed_llvm ->
     a typed_llvm option =
  fun state field recty record_ptr ->
   let* field_addr = get_field_addr state field recty record_ptr in
   let fty = field_type field in
   let llfty = LLVM_type.storage_of_type state.llvm_context fty in
   match fty with
-  | TArr_cst _ -> with_type fty field_addr.value
-  | TUnit | TBool | TNum _ | TPtr _ | TArr_unk _ | TRecord _ | TFn _ ->
+  | TArr_cst _ | TRecord _ -> with_type fty field_addr.value
+  | TUnit | TBool | TNum _ | TPtr _ | TArr_unk _ | TFn _ ->
       let v =
         Llvm.build_load
           llfty
@@ -244,24 +245,26 @@ let get_field : type a u.
 
 let set_field : type a u.
     llvm_state ->
-    (a, u) field ->
-    u typ ->
-    u ptr typed_llvm ->
+    (a, u record) field ->
+    u record typ ->
+    u record typed_llvm ->
     a typed_llvm ->
     unit typed_llvm option =
  fun state field recty record_ptr v ->
   let* field_addr = get_field_addr state field recty record_ptr in
   let fty = field_type field in
   let llfty = LLVM_type.storage_of_type state.llvm_context fty in
+  let perform_copy instr_name =
+    let v_arr = Llvm.build_load llfty v.value instr_name (get_builder state) in
+    let _ = Llvm.build_store v_arr field_addr.value (get_builder state) in
+    return_unit state
+  in
   match fty with
   | TArr_cst (_, sz) ->
       Types.assert_const_array v.ty ~expected_size:sz ;
-      let v_arr =
-        Llvm.build_load llfty v.value "record_set_arr_load" (get_builder state)
-      in
-      let _ = Llvm.build_store v_arr field_addr.value (get_builder state) in
-      return_unit state
-  | TUnit | TBool | TNum _ | TPtr _ | TArr_unk _ | TRecord _ | TFn _ ->
+      perform_copy "set_field_arr_load"
+  | TRecord _ -> perform_copy "set_field_record_load"
+  | TUnit | TBool | TNum _ | TPtr _ | TArr_unk _ | TFn _ ->
       let _ = Llvm.build_store v.value field_addr.value (get_builder state) in
       return_unit state
 
@@ -458,15 +461,17 @@ let rec compile : type a.
   | Store (ptr, v) -> (
       let* ptr = compile env state ptr in
       let* v = compile env state v in
+      let perform_copy instr_name =
+        let llvty = LLVM_type.storage_of_type state.llvm_context v.ty in
+        let s = Llvm.build_load llvty v.value instr_name (get_builder state) in
+        let _ = Llvm.build_store s ptr.value (get_builder state) in
+        return_unit state
+      in
       match ptr.ty with
       | TPtr (TArr_cst (_, sz1)) ->
           Types.assert_const_array v.ty ~expected_size:sz1 ;
-          let llvty = LLVM_type.storage_of_type state.llvm_context v.ty in
-          let s =
-            Llvm.build_load llvty v.value "store_array_load" (get_builder state)
-          in
-          let _ = Llvm.build_store s ptr.value (get_builder state) in
-          return_unit state
+          perform_copy "store_array_load"
+      | TPtr (TRecord _) -> perform_copy "store_record_load"
       | TPtr _ ->
           let _ = Llvm.build_store v.value ptr.value (get_builder state) in
           return_unit state
@@ -476,7 +481,7 @@ let rec compile : type a.
       match ptr.ty with
       | TPtr typ -> (
           match typ with
-          | TArr_cst _ -> with_type typ ptr.value
+          | TArr_cst _ | TRecord _ -> with_type typ ptr.value
           | _ ->
               let llty = LLVM_type.storage_of_type state.llvm_context typ in
               with_type typ
@@ -505,11 +510,13 @@ let rec compile : type a.
       match addressable with
       | Addressable_array -> (
           match e.ty with
-          | TArr_cst (_, _) -> with_type (Types.ptr e.ty) e.value))
+          | TArr_cst (_, _) -> with_type (Types.ptr e.ty) e.value)
+      | Addressable_record -> (
+          match e.ty with TRecord _ -> with_type (Types.ptr e.ty) e.value))
   | Get (arr, i) ->
       get_generic env state arr i (fun addr elt_ty ->
           match elt_ty with
-          | TArr_cst _ -> with_type elt_ty addr
+          | TArr_cst _ | TRecord _ -> with_type elt_ty addr
           | _ ->
               let lletl_ty =
                 LLVM_type.storage_of_type state.llvm_context elt_ty
@@ -536,18 +543,18 @@ let rec compile : type a.
               "set_gep"
               (get_builder state)
           in
+          let perform_copy instr_name =
+            let v_arr =
+              Llvm.build_load llelt_ty v.value instr_name (get_builder state)
+            in
+            ignore @@ Llvm.build_store v_arr elt_addr (get_builder state) ;
+            return_unit state
+          in
           match elt_ty with
           | TArr_cst (_, sz) ->
               Types.assert_const_array v.ty ~expected_size:sz ;
-              let v_arr =
-                Llvm.build_load
-                  llelt_ty
-                  v.value
-                  "set_load_arr"
-                  (get_builder state)
-              in
-              ignore @@ Llvm.build_store v_arr elt_addr (get_builder state) ;
-              return_unit state
+              perform_copy "set_load_arr"
+          | TRecord _ -> perform_copy "set_load_record"
           | _ ->
               ignore @@ Llvm.build_store v.value elt_addr (get_builder state) ;
               return_unit state)
@@ -555,17 +562,16 @@ let rec compile : type a.
   | GetField (field, record_ptr) -> (
       let* record_ptr = compile env state record_ptr in
       match record_ptr.ty with
-      | TPtr (TRecord _ as recty) -> get_field state field recty record_ptr)
+      | TRecord _ as recty -> get_field state field recty record_ptr)
   | GetFieldAddr (field, record_ptr) -> (
       let* record_ptr = compile env state record_ptr in
       match record_ptr.ty with
-      | TPtr (TRecord _ as recty) -> get_field_addr state field recty record_ptr
-      )
+      | TRecord _ as recty -> get_field_addr state field recty record_ptr)
   | SetField (field, record_ptr, v) -> (
       let* record_ptr = compile env state record_ptr in
       let* v = compile env state v in
       match record_ptr.ty with
-      | TPtr (TRecord _ as recty) -> set_field state field recty record_ptr v)
+      | TRecord _ as recty -> set_field state field recty record_ptr v)
   | Cond (cond, ift, iff) ->
       let* cond = compile env state cond in
       let end_of_cond_pos = Llvm.insertion_block (get_builder state) in
@@ -1059,10 +1065,8 @@ and alloca : type s. environment -> llvm_state -> s stack -> s * environment =
       let varty = Types.seal r in
       let llty = LLVM_type.storage_of_type state.llvm_context varty in
       let llalloca = Llvm.build_alloca llty "loc" (get_builder state) in
-      with_extended_env
-        env
-        { value = llalloca; ty = Types.ptr varty }
-        (fun env expr -> alloca env state (rest expr))
+      with_extended_env env { value = llalloca; ty = varty } (fun env expr ->
+          alloca env state (rest expr))
 
 and fundecl : type s. environment -> llvm_state -> s fundecl -> s fn typed_llvm
     =

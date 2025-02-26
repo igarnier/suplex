@@ -116,6 +116,7 @@ and ('a, 't) field = Field : { name : string; ty : 'a typ } -> ('a, 't) field
 and 'a addressable =
   (* | Addressable_record : 'a record typ -> 'a record addressable *)
   | Addressable_array : ('a, [ `cst ]) arr addressable
+  | Addressable_record : 'a record addressable
 
 (** {2 Expressions} *)
 
@@ -151,9 +152,9 @@ and _ expr =
   | Get : ('a, 'c) arr expr * i64 expr -> 'a expr
   | GetAddr : ('a, 'c) arr expr * i64 expr -> 'a ptr expr
   | Set : ('a, 'c) arr expr * i64 expr * 'a expr -> unit expr
-  | GetField : ('a, 'u record) field * 'u record ptr expr -> 'a expr
-  | GetFieldAddr : ('a, 'u record) field * 'u record ptr expr -> 'a ptr expr
-  | SetField : ('a, 'u record) field * 'u record ptr expr * 'a expr -> unit expr
+  | GetField : ('a, 'u record) field * 'u record expr -> 'a expr
+  | GetFieldAddr : ('a, 'u record) field * 'u record expr -> 'a ptr expr
+  | SetField : ('a, 'u record) field * 'u record expr * 'a expr -> unit expr
   | Cond : bool expr * 'a expr * 'a expr -> 'a expr
   | For :
       { init : i64 expr;
@@ -207,7 +208,7 @@ and 'a stack_var =
   | SV_arr_cst : 'a typ * int64 -> ('a, [ `cst ]) arr stack_var
   | SV_strct :
       (_, 'd Vec.t, 'd Vec.t, 't record) record_desc
-      -> 't record ptr stack_var
+      -> 't record stack_var
 
 (** {2 Descriptors for stacks} *)
 

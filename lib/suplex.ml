@@ -255,7 +255,9 @@ let call3 f arg1 arg2 arg3 =
 
 let arg a rest = Args_cons (a, rest)
 
-let addr_of arr = AddrOf (Addressable_array, arr)
+let addr_of_arr arr = AddrOf (Addressable_array, arr)
+
+let addr_of_rec arr = AddrOf (Addressable_record, arr)
 
 let ptr_eq a b = PtrEq (a, b)
 

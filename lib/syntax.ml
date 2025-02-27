@@ -178,6 +178,9 @@ and _ expr =
   | Fundecl : 'a fundecl -> 'a fn expr
   | Call : 'a fn expr * ('a, 'b expr) args -> 'b expr
   | Fail : string -> 'a expr
+  | Malloc : 'a typ -> 'a ptr expr
+  | Malloc_array : 'a typ * int64 expr -> ('a, [ `unk ]) arr expr
+  | Free : 'a ptr expr -> unit expr
 
 and 'a typed_llvm = { value : Llvm.llvalue; ty : 'a typ }
 

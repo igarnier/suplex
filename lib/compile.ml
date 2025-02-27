@@ -986,6 +986,25 @@ let rec compile : type a.
       in
       let _unr = Llvm.build_unreachable (get_builder state) in
       None
+  | Malloc typ ->
+      let llty = LLVM_type.storage_of_type state.llvm_context typ in
+      let llptr = Llvm.build_malloc llty "malloc" (get_builder state) in
+      with_type (Types.ptr typ) llptr
+  | Malloc_array (typ, len) ->
+      let* len = compile env state len in
+      let llty = LLVM_type.storage_of_type state.llvm_context typ in
+      let llptr =
+        Llvm.build_array_malloc
+          llty
+          len.value
+          "array_malloc"
+          (get_builder state)
+      in
+      with_type (Types.arr typ) llptr
+  | Free ptr ->
+      let* ptr = compile env state ptr in
+      let _ = Llvm.build_free ptr.value (get_builder state) in
+      return_unit state
 
 and get_generic : type a b c.
     environment ->

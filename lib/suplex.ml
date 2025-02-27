@@ -263,6 +263,12 @@ let ptr_eq a b = PtrEq (a, b)
 
 let fail msg = Fail msg
 
+let malloc ty = Malloc ty
+
+let malloc_array ty len = Malloc_array (ty, len)
+
+let free ptr = Free ptr
+
 let rec block cmds =
   match cmds with
   | [] -> unit

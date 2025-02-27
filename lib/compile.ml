@@ -77,9 +77,7 @@ module LLVM_type = struct
         (a, b, c, u) record_desc -> Llvm.lltype list -> Llvm.lltype array =
      fun descr acc ->
       match descr with
-      | Record_empty ->
-          let fields = List.rev acc in
-          Array.of_list fields
+      | Record_empty -> Array.of_list acc
       | Record_field { field; index = _; rest } ->
           let typ = storage_of_type context (Types.field_type field) in
           loop rest (typ :: acc)
@@ -100,6 +98,10 @@ module LLVM_type = struct
     | TRecord _ -> storage_of_type context (TPtr typ)
     | _ -> storage_of_type context typ
 end
+
+let field_name : type a u. (a, u record) field -> string =
+ fun (type a u) (field : (a, u record) field) ->
+  match field with Field { name; _ } -> name
 
 let is_floating_point : type a. a numerical -> bool =
  fun (type a) (typ : a numerical) ->
@@ -215,7 +217,7 @@ let get_field_addr : type a u.
           llrecord_type
           record_ptr.value
           index
-          ("fieldaddr_" ^ string_of_int index)
+          (sf "gep_get_field_addr_%s_%d" (field_name field) index)
           (get_builder state)
       in
       let fty = field_type field in
@@ -238,7 +240,7 @@ let get_field : type a u.
         Llvm.build_load
           llfty
           field_addr.value
-          "record_get_load"
+          (sf "load_get_field_%s" (field_name field))
           (get_builder state)
       in
       with_type fty v

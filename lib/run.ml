@@ -110,9 +110,10 @@ end) : BA_private with type elt = X.s and type c_elt = X.c = struct
   let ((ctypes : c Ctypes_static.structure Ctypes_static.typ), cdim, cdata) =
     let open Ctypes in
     let strct = structure "i64_arr" in
-    (* Careful: the order of fields matters here *)
-    let data = field strct "data" (ptr ctypes_elt_ty) in
+    (* Careful: the order of fields matters here, and has to match the order
+       of fields in {!r} *)
     let dim = field strct "dim" int64_t in
+    let data = field strct "data" (ptr ctypes_elt_ty) in
     seal strct ;
     (strct, dim, data)
 end

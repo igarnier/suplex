@@ -689,8 +689,6 @@ let test_switch_all_fail () =
   Alcotest.check_raises "failing_switch" (Failure "default") (fun () ->
       ignore (f 8L))
 
-module R = Run
-
 let test_bigarray : type ba s o.
     (module Numerical with type t = s and type v = o) ->
     (module Run.BA with type elt = s and type s = ba) ->

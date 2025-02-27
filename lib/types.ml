@@ -106,7 +106,7 @@ let field_index : type a u.
     match descr with
     | Record_empty -> Result.ok None
     | Record_field { field = f; index; rest } ->
-        if field_eq f field then Result.ok (Some (field_count - index - 1))
+        if field_eq f field then Result.ok (Some index)
         else loop field_count field rest
     | Record_fix (_, _) -> Result.error "found Record_fix inside of record"
   in

@@ -9,35 +9,38 @@ an easy-to-use execution target when metaprogramming.
 As an example, we show how to implement an iterative factorial.
 {[
 open Suplex
-open LLvm_impl
 
 let fact : int64 -> int64 =
-    Exec.run
-      Stack.(num I64_num @+ empty)
-      Exec.(i64 @-> returning i64)
-      (fun _self acc n ->
-        let*! _ = store acc I64.one in
-        let*! _ =
-          for_
-            ~init:(I64.v 1L)
-            ~pred:(fun i -> I64.le i n)
-            ~step:(fun i -> I64.add i (I64.v 1L))
-            (fun i -> store acc (I64.mul (load acc) i))
-        in
-        load acc)
+  Run.run
+    Run.(i64 @-> returning i64)
+    ( local Stack.i64 @@ fun acc ->
+      end_frame @@ fun _self n ->
+      let* _ = acc <-- I64.v 1L in
+      let* _ =
+        for_
+          ~init:(I64.v 1L)
+          ~pred:(fun i -> I64.le i n)
+          ~step:(fun i -> I64.add i (I64.v 1L))
+          (fun i -> acc <-- I64.mul ~*acc i)
+      in
+      ~*acc )
 ]}
 
-Let's dissect that example, top-down. [Exec.run] reifies a {b suplex} program into a function callable from OCaml.
-[Exec.run] takes three arguments.
-- The first is a description of the stack frame, which here contains a single 64-bit signed integer.
-- The second is the function prototype: here, it takes a single 64-bit signed integer and returns a value of the same type.
+Let's dissect that example, top-down. [Run.run] reifies a {b suplex} program into a function callable from OCaml.
+[Run.run] takes three arguments.
+- The first is the function prototype: here, it takes a single 64-bit signed integer and returns a value of the same type.
+- The second is a description of the stack frame, which here contains a single 64-bit signed integer called [acc].
 - The third is the body of the function. This function here takes the following arguments:
   - [_self] is the function being defined itself. This allows recursive calls (here we don't do any).
-  - [acc] is a pointer to the data on the stack, here a single integer.
   - [n] is the function argument.
+
+The body of the function is an iterative implementation of the factorial function.
+- The [let*] operator allows to sequence and name computations
+- [acc <-- I64.v 1L] initializes the stack location pointed to by [acc]
+- Then we perform a [for] loop, specifying an initializer for the loop index, a stopping predicate [pred] and a step function
+  for the index. The body of the for loop is a function parameterized by the index variable.
+- Last, we return the result by dereferencing the accumulator using [~*]
 
 {1:api API}
 
 {!modules: Suplex}
-{!modules: Suplex.Llvm_impl}
-{!modules: Suplex.Intf}

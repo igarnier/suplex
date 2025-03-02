@@ -34,7 +34,7 @@ let test_fact () =
   @@ (List.map
         (Run.run
            Run.(i64 @-> returning i64)
-           ( local Stack.(num I64_num) @@ fun acc ->
+           ( local Stack.i64 @@ fun acc ->
              end_frame @@ fun _self n ->
              let* _ = acc <-- I64.v 1L in
              let* _ =

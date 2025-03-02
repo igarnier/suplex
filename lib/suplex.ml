@@ -48,7 +48,7 @@ module type Numerical = sig
   type v
 
   (** Witness that [t] is a numerical type. *)
-  val n : t Syntax.numerical
+  val rel : (t, v) Syntax.num_rel
 
   (** [v c] is a constant equal to [c]. *)
   val v : v -> t expr
@@ -79,9 +79,7 @@ module Make_numerical (Num : sig
 
   type v
 
-  val v : v -> t expr
-
-  val n : t numerical
+  val rel : (t, v) num_rel
 
   val zero : t expr
 
@@ -91,29 +89,31 @@ end) : Numerical with type t = Num.t and type v = Num.v = struct
 
   type v = Num.v
 
-  let n = Num.n
+  let rel = Num.rel
 
-  let v = Num.v
+  let n = Compile.numerical_of_num_rel rel
+
+  let v x = Compile.const rel x
 
   let zero = Num.zero
 
   let one = Num.one
 
-  let add a b = Add (Num.n, a, b)
+  let add a b = Add (n, a, b)
 
-  let sub a b = Sub (Num.n, a, b)
+  let sub a b = Sub (n, a, b)
 
-  let mul a b = Mul (Num.n, a, b)
+  let mul a b = Mul (n, a, b)
 
-  let div a b = Div (Num.n, a, b)
+  let div a b = Div (n, a, b)
 
-  let neg a = Neg (Num.n, a)
+  let neg a = Neg (n, a)
 
-  let lt a b = Lt (Num.n, a, b)
+  let lt a b = Lt (n, a, b)
 
-  let le a b = Le (Num.n, a, b)
+  let le a b = Le (n, a, b)
 
-  let eq a b = Eq (Num.n, a, b)
+  let eq a b = Eq (n, a, b)
 end
 
 module I64 = Make_numerical (struct
@@ -123,7 +123,7 @@ module I64 = Make_numerical (struct
 
   let v x = I64 x
 
-  let n = I64_num
+  let rel = I64_rel
 
   let zero = v 0L
 
@@ -137,7 +137,7 @@ module I32 = Make_numerical (struct
 
   let v x = I32 x
 
-  let n = I32_num
+  let rel = I32_rel
 
   let zero = v 0l
 
@@ -151,7 +151,7 @@ module I16 = Make_numerical (struct
 
   let v x = I16 x
 
-  let n = I16_num
+  let rel = I16_rel
 
   let zero = v 0
 
@@ -165,7 +165,7 @@ module I8 = Make_numerical (struct
 
   let v x = I8 x
 
-  let n = I8_num
+  let rel = I8_rel
 
   let zero = v 0
 
@@ -179,7 +179,7 @@ module F64 = Make_numerical (struct
 
   let v x = F64 x
 
-  let n = F64_num
+  let rel = F64_rel
 
   let zero = v 0.0
 
@@ -193,7 +193,7 @@ module F32 = Make_numerical (struct
 
   let v x = F32 x
 
-  let n = F32_num
+  let rel = F32_rel
 
   let zero = v 0.0
 
@@ -207,6 +207,10 @@ let unit = Unit
 let tt = True
 
 let ff = False
+
+let const_array (type t v)
+    (module N : oNumerical with type t = t and type v = v) len =
+  Const_array (N.rel, len)
 
 let string ?(strz = false) str = String { strz; str }
 
@@ -268,6 +272,8 @@ let malloc ty = Malloc ty
 let malloc_array ty len = Malloc_array (ty, len)
 
 let free ptr = Free ptr
+
+let free_array arr = Free_array arr
 
 let rec block cmds =
   match cmds with
@@ -351,6 +357,10 @@ module Run = struct
   let ( @-> ) dom (Fn range) =
     let (Rel dom) = subst dom in
     Fn (Fn_arrow (dom, range))
+
+  let add_fundecl = Run.add_fundecl
+
+  let main = Run.main
 
   let run_module = Run.run_module
 

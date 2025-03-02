@@ -799,112 +799,116 @@ let test_bigarray_f32 () =
        [| 1.; 2.; 3.; 4.; 5. |])
     120.
 
-(* let test_malloc () = *)
-(*   let f = *)
-(*     Run.run *)
-(*       Run.(unit @-> returning i64) *)
-(*       ( end_frame @@ fun _self _arg -> *)
-(*         let module PP = Int64_pair_pair in *)
-(*         let module P = Int64_pair in *)
-(*         let*! strct = malloc PP.t in *)
-(*         let*! _ = strct.&{PP.f1}.%{P.f1} <- I64.v 10L in *)
-(*         let*! _ = strct.&{PP.f1}.%{P.f2} <- I64.v 11L in *)
-(*         let*! _ = strct.&{PP.f2}.%{P.f1} <- I64.v 13L in *)
-(*         let*! _ = strct.&{PP.f2}.%{P.f2} <- I64.v 14L in *)
-(*         let ( + ) = I64.add in *)
-(*         let*! sum = *)
-(*           strct.&{PP.f1}.%{P.f1} *)
-(*           + strct.&{PP.f1}.%{P.f2} *)
-(*           + strct.&{PP.f2}.%{P.f1} *)
-(*           + strct.&{PP.f2}.%{P.f2} *)
-(*         in *)
-(*         let*! _ = free strct in *)
-(*         sum ) *)
-(*   in *)
-(*   Alcotest.(check int64) "test_malloc" 48L @@ f () *)
+let test_malloc () =
+  let f =
+    Run.run
+      Run.(unit @-> returning i64)
+      ( end_frame @@ fun _self _arg ->
+        let module PP = Int64_pair_pair in
+        let module P = Int64_pair in
+        let* strct_ptr = malloc PP.t in
+        let* strct = ~*strct_ptr in
+        let* _ = strct.%{PP.f1}.%{P.f1} <- I64.v 10L in
+        let* _ = strct.%{PP.f1}.%{P.f2} <- I64.v 11L in
+        let* _ = strct.%{PP.f2}.%{P.f1} <- I64.v 13L in
+        let* _ = strct.%{PP.f2}.%{P.f2} <- I64.v 14L in
+        let ( + ) = I64.add in
+        let* sum =
+          strct.%{PP.f1}.%{P.f1}
+          + strct.%{PP.f1}.%{P.f2}
+          + strct.%{PP.f2}.%{P.f1}
+          + strct.%{PP.f2}.%{P.f2}
+        in
+        let* _ = free strct_ptr in
+        sum )
+  in
+  Alcotest.(check int64) "test_malloc" 48L @@ f ()
 
-(* let test_malloc_array () = *)
-(*   let f = *)
-(*     Run.run *)
-(*       Run.(unit @-> returning i64) *)
-(*       (let*:: acc = Stack.(num Suplex.I64_num) in *)
-(*        end_frame @@ fun _self _arg -> *)
-(*        let module PP = Int64_pair_pair in *)
-(*        let module P = Int64_pair in *)
-(*        let*! _ = store acc I64.zero in *)
-(*        let*! arr = malloc_array PP.t (I64.v 4L) in *)
-(*        let*! _ = *)
-(*          for_loop 0L 3L (fun i -> *)
-(*              let*! strct = arr.&[i] in *)
-(*              let*! _ = strct.&{PP.f1}.%{P.f1} <- I64.v 10L in *)
-(*              let*! _ = strct.&{PP.f1}.%{P.f2} <- I64.v 11L in *)
-(*              let*! _ = strct.&{PP.f2}.%{P.f1} <- I64.v 13L in *)
-(*              let*! _ = strct.&{PP.f2}.%{P.f2} <- I64.v 14L in *)
-(*              let ( + ) = I64.add in *)
-(*              let*! sum = *)
-(*                strct.&{PP.f1}.%{P.f1} *)
-(*                + strct.&{PP.f1}.%{P.f2} *)
-(*                + strct.&{PP.f2}.%{P.f1} *)
-(*                + strct.&{PP.f2}.%{P.f2} *)
-(*              in *)
-(*              store acc (load acc + sum)) *)
-(*        in *)
-(*        let*! _ = free_array arr in *)
-(*        load acc) *)
-(*   in *)
-(*   Alcotest.(check int64) "test_malloc" (Int64.mul 4L 48L) @@ f () *)
+let test_malloc_array () =
+  let f =
+    Run.run
+      Run.(unit @-> returning i64)
+      (let*:: acc = Stack.i64 in
+       end_frame @@ fun _self _arg ->
+       let module PP = Int64_pair_pair in
+       let module P = Int64_pair in
+       let* _ = acc <-- I64.zero in
+       let* arr = malloc_array PP.t (I64.v 4L) in
+       let* _ =
+         for_loop 0L 3L (fun i ->
+             let* strct = arr.%[i] in
+             let* _ = strct.%{PP.f1}.%{P.f1} <- I64.v 10L in
+             let* _ = strct.%{PP.f1}.%{P.f2} <- I64.v 11L in
+             let* _ = strct.%{PP.f2}.%{P.f1} <- I64.v 13L in
+             let* _ = strct.%{PP.f2}.%{P.f2} <- I64.v 14L in
+             let ( + ) = I64.add in
+             let* sum =
+               strct.%{PP.f1}.%{P.f1}
+               + strct.%{PP.f1}.%{P.f2}
+               + strct.%{PP.f2}.%{P.f1}
+               + strct.%{PP.f2}.%{P.f2}
+             in
+             acc <-- ~*acc + sum)
+       in
+       let* _ = free_array arr in
+       ~*acc)
+  in
+  Alcotest.(check int64) "test_malloc" (Int64.mul 4L 48L) @@ f ()
 
-(* let test_opaque_mallocd_strct () = *)
-(*   let open K in *)
-(*   let (((), alloc), sum) = *)
-(*     Run.run_module *)
-(*     @@ let* alloc_int64_pair = *)
-(*          fundecl *)
-(*            "alloc" *)
-(*            Types.(unit @-> returning (ptr Int64_pair.t)) *)
-(*            ( end_frame @@ fun _self _ -> *)
-(*              let*! pair = malloc Int64_pair.t in *)
-(*              let*! _ = pair.%{Int64_pair.f1} <- I64.v 12L in *)
-(*              let*! _ = pair.%{Int64_pair.f2} <- I64.v 30L in *)
-(*              pair ) *)
-(*        in *)
-(*        let* sum_int64_pair = *)
-(*          fundecl *)
-(*            "sum" *)
-(*            Types.(ptr Int64_pair.t @-> returning i64) *)
-(*            ( end_frame @@ fun _self pair -> *)
-(*              let*! x = pair.%{Int64_pair.f1} in *)
-(*              let*! y = pair.%{Int64_pair.f2} in *)
-(*              I64.add x y ) *)
-(*        in *)
-(*        return *)
-(*          Run.( *)
-(*            empty_module *)
-(*            |> add_fdecl *)
-(*                 alloc_int64_pair *)
-(*                 (unit @-> returning (opaque_mallocd_strct Int64_pair.r)) *)
-(*            |> add_fdecl *)
-(*                 sum_int64_pair *)
-(*                 (opaque_mallocd_strct Int64_pair.r @-> returning i64)) *)
-(*   in *)
-(*   Alcotest.(check int64) "test_opaque" 42L @@ sum (alloc ()) *)
+let test_opaque_mallocd_strct () =
+  let mdl =
+    Run.add_fundecl
+      "alloc"
+      Run.(unit @-> returning (opaque_mallocd_strct Int64_pair.r))
+      begin
+        end_frame @@ fun _self _ ->
+        let* pair_ptr = malloc Int64_pair.t in
+        let* pair = ~*pair_ptr in
+        let* _ = pair.%{Int64_pair.f1} <- I64.v 12L in
+        let* _ = pair.%{Int64_pair.f2} <- I64.v 30L in
+        pair
+      end
+    @@ fun alloc ->
+    Run.add_fundecl
+      "sum"
+      Run.(opaque_mallocd_strct Int64_pair.r @-> returning i64)
+      begin
+        end_frame @@ fun _self pair ->
+        let* x = pair.%{Int64_pair.f1} in
+        let* y = pair.%{Int64_pair.f2} in
+        I64.add x y
+      end
+    @@ fun sum ->
+    Run.main
+      "main"
+      Run.(unit @-> returning i64)
+      begin
+        end_frame @@ fun _self _ ->
+        let* pair = call1 alloc unit in
+        let* sum = call1 sum pair in
+        let* _ = free (addr_of_rec pair) in
+        sum
+      end
+  in
+  let ((main, _sum), _alloc) = Run.run_module mdl in
+  Alcotest.(check int64) "test_opaque" 42L @@ main ()
 
-(* let test_global_array () = *)
-(*   let f = *)
-(*     Run.run *)
-(*       Run.(unit @-> returning f64) *)
-(*       (let*:: acc = Stack.(num Suplex.F64_num) in *)
-(*        end_frame @@ fun _self _arg -> *)
-(*        let*! _ = store acc F64.zero in *)
-(*        let*! arr = global_array (module F64) [| 1.0; 2.0; 3.0; 4.0 |] in *)
-(*        let*! _ = *)
-(*          for_loop 0L 3L (fun i -> *)
-(*              let*! v = arr.%[i] in *)
-(*              store acc (F64.add (load acc) v)) *)
-(*        in *)
-(*        load acc) *)
-(*   in *)
-(*   Alcotest.(check (float 0.01)) "test_global_array" 10. @@ f () *)
+let test_global_array () =
+  let f =
+    Run.run
+      Run.(unit @-> returning f64)
+      (let*:: acc = Stack.f64 in
+       end_frame @@ fun _self _arg ->
+       let* _ = acc <-- F64.zero in
+       let* arr = const_array (module F64) [| 1.0; 2.0; 3.0; 4.0 |] in
+       let* _ =
+         for_loop 0L 3L (fun i ->
+             let* v = arr.%[i] in
+             acc <-- F64.add ~*acc v)
+       in
+       ~*acc)
+  in
+  Alcotest.(check (float 0.01)) "test_global_array" 10. @@ f ()
 
 let () =
   let open Alcotest in
@@ -964,8 +968,8 @@ let () =
           test_case "test_bigarray_i16" `Quick test_bigarray_i16;
           test_case "test_bigarray_i16" `Quick test_bigarray_i8;
           test_case "test_bigarray_f64" `Quick test_bigarray_f64;
-          test_case "test_bigarray_f32" `Quick test_bigarray_f32
-          (* test_case "test_malloc" `Quick test_malloc; *)
-          (* test_case "test_malloc_array" `Quick test_malloc_array; *)
-          (* test_case "test_opaque_strct" `Quick test_opaque_mallocd_strct; *)
-          (* test_case "test_global_array" `Quick test_global_array *) ] ) ]
+          test_case "test_bigarray_f32" `Quick test_bigarray_f32;
+          test_case "test_malloc" `Quick test_malloc;
+          test_case "test_malloc_array" `Quick test_malloc_array;
+          test_case "test_opaque_strct" `Quick test_opaque_mallocd_strct;
+          test_case "test_global_array" `Quick test_global_array ] ) ]

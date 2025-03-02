@@ -3,6 +3,16 @@ open Syntax
 
 let sf = Printf.sprintf
 
+let numerical_of_num_rel : type s o. (s, o) num_rel -> s numerical =
+ fun rel ->
+  match rel with
+  | I64_rel -> I64_num
+  | I32_rel -> I32_num
+  | I16_rel -> I16_num
+  | I8_rel -> I8_num
+  | F64_rel -> F64_num
+  | F32_rel -> F32_num
+
 module LLVM_type = struct
   type t = Llvm.lltype
 
@@ -277,6 +287,16 @@ let with_extended_env env bound f =
 
 exception Invalid_llvm_function of Llvm.llmodule * Llvm.llvalue
 
+let const : type s o. (s, o) num_rel -> o -> s expr =
+ fun rel v ->
+  match rel with
+  | I64_rel -> I64 v
+  | I32_rel -> I32 v
+  | I16_rel -> I16 v
+  | I8_rel -> I8 v
+  | F64_rel -> F64 v
+  | F32_rel -> F32 v
+
 (* Invariant: expression of type array_cst is a pointer to the array on the LLVM side *)
 
 let rec compile : type a.
@@ -332,6 +352,29 @@ let rec compile : type a.
   | F32 f ->
       with_type Types.f32
       @@ Llvm.const_float (LLVM_type.float32_t state.llvm_context) f
+  | Const_array (numrel, arr) ->
+      let ty =
+        LLVM_type.storage_of_type
+          state.llvm_context
+          (TNum (numerical_of_num_rel numrel))
+      in
+      let elts =
+        Array.map
+          (fun v ->
+            (* Converting a constant should never fail *)
+            let v_opt = compile env state (const numrel v) in
+            let v = match v_opt with None -> assert false | Some v -> v in
+            v.value)
+          arr
+      in
+      let init = Llvm.const_array ty elts in
+      let glbptr = Llvm.define_global "global_arr" init state.llvm_module in
+      let arr_ty =
+        Types.arr_cst
+          (TNum (numerical_of_num_rel numrel))
+          (Int64.of_int (Array.length arr))
+      in
+      with_type arr_ty glbptr
   | Add (numty, l, r) ->
       let* l = compile env state l in
       let* r = compile env state r in
@@ -1004,6 +1047,10 @@ let rec compile : type a.
   | Free ptr ->
       let* ptr = compile env state ptr in
       let _ = Llvm.build_free ptr.value (get_builder state) in
+      return_unit state
+  | Free_array arr ->
+      let* arr = compile env state arr in
+      let _ = Llvm.build_free arr.value (get_builder state) in
       return_unit state
 
 and get_generic : type a b c.

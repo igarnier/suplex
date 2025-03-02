@@ -14,14 +14,6 @@ include (
       val opaque : 'a opaque Ctypes.typ
     end)
 
-type (_, _) num_rel =
-  | I64_rel : (i64, int64) num_rel
-  | I32_rel : (i32, int32) num_rel
-  | I16_rel : (i16, int) num_rel
-  | I8_rel : (i8, int) num_rel
-  | F64_rel : (f64, float) num_rel
-  | F32_rel : (f32, float) num_rel
-
 module type BA = sig
   type elt
 
@@ -81,14 +73,7 @@ end) : BA_private with type elt = X.s and type c_elt = X.c = struct
 
   type c
 
-  let numty : elt numerical =
-    match X.rel with
-    | I64_rel -> I64_num
-    | I32_rel -> I32_num
-    | I16_rel -> I16_num
-    | I8_rel -> I8_num
-    | F64_rel -> F64_num
-    | F32_rel -> F32_num
+  let numty : elt numerical = Compile.numerical_of_num_rel X.rel
 
   let elt_ty = TNum numty
 
@@ -554,7 +539,10 @@ let rec prototype_of_rel : type s o c. (s, o, c) full_rel_fn -> s fn =
   | Fn_arrow (dom, range) ->
       Types.(extract_suplex dom @-> prototype_of_rel range)
 
-let main fdecl rel = Main { fdecl; rel }
+let main name (Fn rel as fn_rel) body =
+  let sg = prototype_of_rel rel in
+  let fdecl = { name; sg; body } in
+  Main { fdecl; rel = fn_rel }
 
 let add_fundecl name (Fn rel as fn_rel) body mdl =
   let sg = prototype_of_rel rel in

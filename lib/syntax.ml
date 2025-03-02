@@ -37,6 +37,16 @@ type 'a numerical =
   | F64_num : f64 numerical
   | F32_num : f32 numerical
 
+(** {2 Relationship between numerical types and OCaml values *)
+
+type (_, _) num_rel =
+  | I64_rel : (i64, int64) num_rel
+  | I32_rel : (i32, int32) num_rel
+  | I16_rel : (i16, int) num_rel
+  | I8_rel : (i8, int) num_rel
+  | F64_rel : (f64, float) num_rel
+  | F32_rel : (f32, float) num_rel
+
 (** Pretty-printing numerical types. *)
 let pp_numerical : type a. Format.formatter -> a numerical -> unit =
  fun (type a) fmtr (n : a numerical) ->
@@ -179,8 +189,10 @@ and _ expr =
   | Call : 'a fn expr * ('a, 'b expr) args -> 'b expr
   | Fail : string -> 'a expr
   | Malloc : 'a typ -> 'a ptr expr
-  | Malloc_array : 'a typ * int64 expr -> ('a, [ `unk ]) arr expr
+  | Malloc_array : 'a typ * i64 expr -> ('a, [ `unk ]) arr expr
   | Free : 'a ptr expr -> unit expr
+  | Free_array : ('a, [ `unk ]) arr expr -> unit expr
+  | Const_array : ('s, 'o) num_rel * 'o array -> ('s, [ `cst ]) arr expr
 
 and 'a typed_llvm = { value : Llvm.llvalue; ty : 'a typ }
 
@@ -234,6 +246,18 @@ module Stack = struct
   let bool = SV_bool
 
   let num n = SV_num n
+
+  let i64 = num I64_num
+
+  let i32 = num I32_num
+
+  let i16 = num I16_num
+
+  let i8 = num I8_num
+
+  let f64 = num F64_num
+
+  let f32 = num F32_num
 
   let ptr ty = SV_ptr ty
 

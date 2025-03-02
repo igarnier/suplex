@@ -155,9 +155,6 @@ module Int64_pair_pair = struct
   let t : t record typ = seal r
 
   let (((), f1), f2) = projs r
-
-  let eq s1 s2 =
-    Int64_pair.eq s1.%{f1} s2.%{f1} &&& Int64_pair.eq s1.%{f2} s2.%{f2}
 end
 
 (* Allocate a struct on the stack, store the arguments in

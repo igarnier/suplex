@@ -549,9 +549,10 @@ let add_fundecl name (Fn rel as fn_rel) body mdl =
   let fdecl = { name; sg; body } in
   Add_fundecl { fdecl; rel = fn_rel; mdl }
 
-let run_module : type s. ?cfg:cfg -> ?state:Compile.llvm_state -> s module_ -> s
-    =
- fun ?(cfg = Llvm_executionengine.default_compiler_options)
+let run_module : type s.
+    ?debug:bool -> ?cfg:cfg -> ?state:Compile.llvm_state -> s module_ -> s =
+ fun ?(debug = false)
+     ?(cfg = Llvm_executionengine.default_compiler_options)
      ?(state = Compile.new_llvm_state ())
      mdl ->
   assert (Llvm_executionengine.initialize ()) ;
@@ -559,7 +560,7 @@ let run_module : type s. ?cfg:cfg -> ?state:Compile.llvm_state -> s module_ -> s
   (* let fpm = Llvm.PassManager.create () in *)
   (* ignore (Llvm.PassManager.run_module state.llvm_module fpm) ; *)
   let roots = ref List.[] in
-  let rec loop : type s. s module_ -> environment -> s * environment =
+  let rec loop : type s. s module_ -> environment -> s * string * environment =
    fun mdl env ->
     match mdl with
     | Main { fdecl; rel = Fn rel } -> (
@@ -578,13 +579,13 @@ let run_module : type s. ?cfg:cfg -> ?state:Compile.llvm_state -> s module_ -> s
             in
             let f = box_ctypes_fn rel f in
             roots := Obj.magic f :: !roots ;
-            (f, env))
+            (f, fdecl.name, env))
     | Add_fundecl { fdecl; rel = Fn rel; mdl } -> (
         let f = Compile.fundecl env state fdecl in
         let key = Hmap.Key.create () in
         let env = Hmap.add key f env in
         let var = Var key in
-        let (rest, env) = loop (mdl var) env in
+        let (rest, main, env) = loop (mdl var) env in
         match rel with
         | Fn_returning _ ->
             (* Cannot be refuted because of abstract bigarray type *)
@@ -599,10 +600,10 @@ let run_module : type s. ?cfg:cfg -> ?state:Compile.llvm_state -> s module_ -> s
             in
             let f = box_ctypes_fn rel f in
             roots := Obj.magic f :: !roots ;
-            ((rest, f), env))
+            ((rest, f), main, env))
   in
-  let (res, _) = loop mdl Hmap.empty in
-  Llvm.print_module "dump.ll" state.llvm_module ;
+  let (res, main, _) = loop mdl Hmap.empty in
+  if debug then Llvm.print_module (main ^ ".ll") state.llvm_module else () ;
   let roots_count = ref (List.length !roots) in
   List.iter
     (fun root ->

@@ -47,18 +47,6 @@ type (_, _) num_rel =
   | F64_rel : (f64, float) num_rel
   | F32_rel : (f32, float) num_rel
 
-(** Pretty-printing numerical types. *)
-let pp_numerical : type a. Format.formatter -> a numerical -> unit =
- fun (type a) fmtr (n : a numerical) ->
-  let open Format in
-  match n with
-  | I64_num -> fprintf fmtr "i64"
-  | I32_num -> fprintf fmtr "i32"
-  | I16_num -> fprintf fmtr "i16"
-  | I8_num -> fprintf fmtr "i8"
-  | F32_num -> fprintf fmtr "f32"
-  | F64_num -> fprintf fmtr "f64"
-
 (** Classifies numerical types into floating-point kind [`fp] or integer kind
     [`int]. *)
 let numerical_kind : type a. a numerical -> [ `fp | `int ] =
@@ -70,18 +58,6 @@ let numerical_kind : type a. a numerical -> [ `fp | `int ] =
   | I8_num -> `int
   | F32_num -> `fp
   | F64_num -> `fp
-
-let numerical_eq : type a b. a numerical -> b numerical -> (a, b) Type.eq option
-    =
- fun n1 n2 ->
-  match (n1, n2) with
-  | (I64_num, I64_num) -> Some Equal
-  | (I32_num, I32_num) -> Some Equal
-  | (I16_num, I16_num) -> Some Equal
-  | (I8_num, I8_num) -> Some Equal
-  | (F64_num, F64_num) -> Some Equal
-  | (F32_num, F32_num) -> Some Equal
-  | _ -> None
 
 (** ['a typ] is the type of {b suplex} types. *)
 type 'a typ =
@@ -193,6 +169,13 @@ and _ expr =
   | Free : 'a ptr expr -> unit expr
   | Free_array : ('a, [ `unk ]) arr expr -> unit expr
   | Const_array : ('s, 'o) num_rel * 'o array -> ('s, [ `cst ]) arr expr
+  | Trunc : 'a numerical * 'b numerical * 'a expr -> 'b expr
+  | SExt : 'a numerical * 'b numerical * 'a expr -> 'b expr
+  | ZExt : 'a numerical * 'b numerical * 'a expr -> 'b expr
+  | ToF32 : 'a numerical * 'a expr -> f32 expr
+  | ToF64 : 'a numerical * 'a expr -> f64 expr
+  | OfF32 : 'a numerical * f32 expr -> 'a expr
+  | OfF64 : 'a numerical * f64 expr -> 'a expr
 
 and 'a typed_llvm = { value : Llvm.llvalue; ty : 'a typ }
 

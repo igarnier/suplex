@@ -332,6 +332,20 @@ val free : 'a ptr expr -> unit expr
 
 val free_array : ('a, [ `unk ]) arr expr -> unit expr
 
+val trunc : 'a numerical -> 'b numerical -> 'a expr -> 'b expr
+
+val sext : 'a numerical -> 'b numerical -> 'a expr -> 'b expr
+
+val zext : 'a numerical -> 'b numerical -> 'a expr -> 'b expr
+
+val to_f32 : 'a numerical -> 'a expr -> f32 expr
+
+val to_f64 : 'a numerical -> 'a expr -> f64 expr
+
+val of_f32 : 'a numerical -> f32 expr -> 'a expr
+
+val of_f64 : 'a numerical -> f64 expr -> 'a expr
+
 val block : unit expr list -> unit expr
 
 module Stack : sig

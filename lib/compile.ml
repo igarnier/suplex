@@ -1052,6 +1052,72 @@ let rec compile : type a.
       let* arr = compile env state arr in
       let _ = Llvm.build_free arr.value (get_builder state) in
       return_unit state
+  | Trunc (_n1, n2, v) -> begin
+      let target = LLVM_type.of_numerical state.llvm_context n2 in
+      let* v = compile env state v in
+      let truncated =
+        Llvm.build_trunc v.value target "trunc" (get_builder state)
+      in
+      with_type (TNum n2) truncated
+    end
+  | ZExt (_n1, n2, v) ->
+      let target = LLVM_type.of_numerical state.llvm_context n2 in
+      let* v = compile env state v in
+      let ext = Llvm.build_zext v.value target "zext" (get_builder state) in
+      with_type (TNum n2) ext
+  | SExt (_n1, n2, v) ->
+      let target = LLVM_type.of_numerical state.llvm_context n2 in
+      let* v = compile env state v in
+      let ext = Llvm.build_zext v.value target "sext" (get_builder state) in
+      with_type (TNum n2) ext
+  | ToF32 (n, v) -> (
+      let* v = compile env state v in
+      let target = LLVM_type.of_numerical state.llvm_context F32_num in
+      match n with
+      | I64_num | I32_num | I16_num | I8_num ->
+          let fp =
+            Llvm.build_sitofp v.value target "si_to_f32" (get_builder state)
+          in
+          with_type Types.f32 fp
+      | F32_num -> Some v
+      | F64_num ->
+          let fp =
+            Llvm.build_fptrunc v.value target "f64_to_f32" (get_builder state)
+          in
+          with_type Types.f32 fp)
+  | ToF64 (n, v) -> (
+      let* v = compile env state v in
+      let target = LLVM_type.of_numerical state.llvm_context F32_num in
+      match n with
+      | I64_num | I32_num | I16_num | I8_num ->
+          Llvm.build_sitofp v.value target "si_to_f64" (get_builder state)
+          |> with_type Types.f64
+      | F64_num -> Some v
+      | F32_num ->
+          Llvm.build_fpext v.value target "f32_to_f64" (get_builder state)
+          |> with_type Types.f64)
+  | OfF32 (n, v) -> (
+      let target = LLVM_type.of_numerical state.llvm_context n in
+      let* v = compile env state v in
+      match n with
+      | I64_num | I32_num | I16_num | I8_num ->
+          Llvm.build_fptosi v.value target "f32_to_si" (get_builder state)
+          |> with_type (TNum n)
+      | F32_num -> Some v
+      | F64_num ->
+          Llvm.build_fpext v.value target "f32_to_f64" (get_builder state)
+          |> with_type Types.f64)
+  | OfF64 (n, v) -> (
+      let target = LLVM_type.of_numerical state.llvm_context n in
+      let* v = compile env state v in
+      match n with
+      | I64_num | I32_num | I16_num | I8_num ->
+          Llvm.build_fptosi v.value target "f64_to_si" (get_builder state)
+          |> with_type (TNum n)
+      | F64_num -> Some v
+      | F32_num ->
+          Llvm.build_fptrunc v.value target "f64_to_f32" (get_builder state)
+          |> with_type (TNum n))
 
 and get_generic : type a b c.
     environment ->

@@ -297,6 +297,69 @@ let free ptr = Free ptr
 
 let free_array arr = Free_array arr
 
+let can_be_truncated : type a b.
+    a numerical -> b numerical -> (unit, string) Result.t =
+ fun n1 n2 ->
+  match (n1, n2) with
+  | (I64_num, I32_num)
+  | (I64_num, I16_num)
+  | (I64_num, I8_num)
+  | (I32_num, I16_num)
+  | (I32_num, I8_num)
+  | (I16_num, I8_num) ->
+      Ok ()
+  | _ ->
+      Format.kasprintf
+        Result.error
+        "Cannot truncate %a to %a"
+        Types.pp_numerical
+        n1
+        Types.pp_numerical
+        n2
+
+let trunc src dst v =
+  match can_be_truncated src dst with
+  | Error e -> failwith e
+  | Ok () -> Trunc (src, dst, v)
+
+let can_be_extended : type a b.
+    a numerical -> b numerical -> (unit, string) Result.t =
+ fun n1 n2 ->
+  match (n1, n2) with
+  | (I8_num, I16_num)
+  | (I8_num, I32_num)
+  | (I8_num, I64_num)
+  | (I16_num, I32_num)
+  | (I16_num, I64_num)
+  | (I32_num, I64_num) ->
+      Ok ()
+  | _ ->
+      Format.kasprintf
+        Result.error
+        "Cannot extend %a to %a"
+        Types.pp_numerical
+        n1
+        Types.pp_numerical
+        n2
+
+let sext src dst v =
+  match can_be_extended src dst with
+  | Error e -> failwith e
+  | Ok () -> SExt (src, dst, v)
+
+let zext src dst v =
+  match can_be_extended src dst with
+  | Error e -> failwith e
+  | Ok () -> ZExt (src, dst, v)
+
+let to_f32 src v = ToF32 (src, v)
+
+let to_f64 src v = ToF64 (src, v)
+
+let of_f32 trgt v = OfF32 (trgt, v)
+
+let of_f64 trgt v = OfF64 (trgt, v)
+
 let rec block cmds =
   match cmds with
   | [] -> unit

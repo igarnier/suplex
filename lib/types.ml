@@ -10,6 +10,28 @@ let field_name : type a. (a, _) field -> string = function
 let field_type : type a. (a, _) field -> a typ = function
   | Field { ty; _ } -> ty
 
+let classify_numerical : type a. a numerical -> [ `fp | `int ] =
+ fun n ->
+  match n with
+  | I64_num -> `int
+  | I32_num -> `int
+  | I16_num -> `int
+  | I8_num -> `int
+  | F64_num -> `fp
+  | F32_num -> `fp
+
+(** Pretty-printing numerical types. *)
+let pp_numerical : type a. Format.formatter -> a numerical -> unit =
+ fun (type a) fmtr (n : a numerical) ->
+  let open Format in
+  match n with
+  | I64_num -> fprintf fmtr "i64"
+  | I32_num -> fprintf fmtr "i32"
+  | I16_num -> fprintf fmtr "i16"
+  | I8_num -> fprintf fmtr "i8"
+  | F32_num -> fprintf fmtr "f32"
+  | F64_num -> fprintf fmtr "f64"
+
 let rec pp_typ : type a. int list -> Format.formatter -> a typ -> unit =
  fun (type a) visited fmtr (typ : a typ) ->
   match typ with
@@ -55,6 +77,18 @@ let pp_typ fmtr typ = pp_typ [] fmtr typ
 
 let pp_field : type a. Format.formatter -> (a, _) field -> unit =
  fun fmtr (Field { name; ty }) -> Format.fprintf fmtr "%s: %a" name pp_typ ty
+
+let numerical_eq : type a b. a numerical -> b numerical -> (a, b) Type.eq option
+    =
+ fun n1 n2 ->
+  match (n1, n2) with
+  | (I64_num, I64_num) -> Some Equal
+  | (I32_num, I32_num) -> Some Equal
+  | (I16_num, I16_num) -> Some Equal
+  | (I8_num, I8_num) -> Some Equal
+  | (F64_num, F64_num) -> Some Equal
+  | (F32_num, F32_num) -> Some Equal
+  | _ -> None
 
 let rec type_eq : type a b. a typ -> b typ -> bool =
  fun t1 t2 ->

@@ -212,14 +212,14 @@ type (_, _, _) full_rel =
       (** [Full_rel_arr_cst_toplevel] is not directly visible to the user. We
           silently replace [Full_rel_arr_cst] by this constructor to honor the
           fact that arrays are passed by-ref and not by-value *)
-  | Full_rel_malloced_struct :
+  | Full_rel_mallocd_struct :
       (_, 'suplex Vec.t, 'suplex Vec.t, 'u record) record_desc
       * ('suplex Vec.t, 'ocaml Vec.t, 'ctypes Vec.t) full_rel_vec
       -> ( 'u record expr,
            'ocaml Vec.t,
            'u Ctypes.structure Ctypes_static.ptr )
          full_rel
-  | Full_rel_opaque_malloced_struct :
+  | Full_rel_opaque_mallocd_struct :
       (_, 'suplex Vec.t, 'suplex Vec.t, 'u record) record_desc
       -> ('u record expr, 'u opaque, 'u opaque) full_rel
   | Full_rel_struct :
@@ -307,8 +307,8 @@ let rec extract_ctypes : type s o c. (s, o, c) full_rel -> c Ctypes.typ =
   | Full_rel_arr_cst (len, strct) -> Ctypes.array len (extract_ctypes strct)
   | Full_rel_arr_cst_toplevel (len, strct) ->
       Ctypes.ptr (Ctypes.array len (extract_ctypes strct))
-  | Full_rel_malloced_struct (_strct, v) -> Ctypes.ptr (ctypes_struct v)
-  | Full_rel_opaque_malloced_struct _strct -> opaque
+  | Full_rel_mallocd_struct (_strct, v) -> Ctypes.ptr (ctypes_struct v)
+  | Full_rel_opaque_mallocd_struct _strct -> opaque
   | Full_rel_struct (_strct, v) -> ctypes_struct v
 
 and ctypes_struct : type s o c u.
@@ -384,10 +384,10 @@ let rec ocaml_to_ctypes : type s o c. (s, o, c) full_rel -> o -> c =
       in
       init_carray r v expected_len Ctypes.(!@ptr_to_carray) ;
       ptr_to_carray
-  | Full_rel_malloced_struct (_strct, fields) ->
+  | Full_rel_mallocd_struct (_strct, fields) ->
       let (typ, strct) = construct_ctypes_record fields v in
       Ctypes.allocate typ strct
-  | Full_rel_opaque_malloced_struct _strct -> v
+  | Full_rel_opaque_mallocd_struct _strct -> v
   | Full_rel_struct (_strct, fields) ->
       let (_typ, strct) = construct_ctypes_record fields v in
       strct
@@ -460,9 +460,9 @@ let rec ctypes_to_ocaml : type s o c. (s, o, c) full_rel -> c -> o =
       failwith "ctypes_to_ocaml: can't convert an array to OCaml"
   | Full_rel_arr_cst_toplevel (_, _) ->
       failwith "ctypes_to_ocaml: can't convert an array to OCaml"
-  | Full_rel_malloced_struct (_strct, fields) ->
+  | Full_rel_mallocd_struct (_strct, fields) ->
       destruct_ctypes_record fields Ctypes.(!@v)
-  | Full_rel_opaque_malloced_struct _ -> v
+  | Full_rel_opaque_mallocd_struct _ -> v
   | Full_rel_struct (_strct, fields) -> destruct_ctypes_record fields v
 
 and destruct_ctypes_record : type s o c u.
@@ -528,8 +528,8 @@ let rec extract_suplex : type s o c. (s expr, o, c) full_rel -> s typ =
       Types.arr_cst (extract_suplex r) (Int64.of_int len)
   | Full_rel_arr_cst_toplevel (len, r) ->
       Types.arr_cst (extract_suplex r) (Int64.of_int len)
-  | Full_rel_malloced_struct (r, _) -> Types.seal r
-  | Full_rel_opaque_malloced_struct r -> Types.seal r
+  | Full_rel_mallocd_struct (r, _) -> Types.seal r
+  | Full_rel_opaque_mallocd_struct r -> Types.seal r
   | Full_rel_struct (r, _) -> Types.seal r
 
 let rec prototype_of_rel : type s o c. (s, o, c) full_rel_fn -> s fn =
@@ -615,10 +615,10 @@ let run_module : type s.
     !roots ;
   res
 
-let run_program (type s tdom trange) ?cfg ?state (fdecl : s fundecl)
-    (rel : (s, tdom -> trange) fn_rel) : tdom -> trange =
+let run_program (type s tdom trange) ?cfg ?state
+    (rel : (s, tdom -> trange) fn_rel) (fdecl : s fundecl) : tdom -> trange =
   run_module ?cfg ?state (Main { fdecl; rel })
 
 let run ?cfg ?(fname = "main") (Fn rel as fn_rel) body =
   let sg = prototype_of_rel rel in
-  run_program ?cfg { name = fname; sg; body } fn_rel
+  run_program ?cfg fn_rel { name = fname; sg; body }

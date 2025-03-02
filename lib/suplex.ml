@@ -439,9 +439,9 @@ module Run = struct
   let array len (Rel r) = Rel (Full_rel_arr_cst (len, r))
 
   let mallocd_strct strct (Vec spec) =
-    Rel (Full_rel_malloced_struct (strct, spec))
+    Rel (Full_rel_mallocd_struct (strct, spec))
 
-  let opaque_mallocd_strct strct = Rel (Full_rel_opaque_malloced_struct strct)
+  let opaque_mallocd_strct strct = Rel (Full_rel_opaque_mallocd_struct strct)
 
   let strct strct (Vec spec) = Rel (Full_rel_struct (strct, spec))
 

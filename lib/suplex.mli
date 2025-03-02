@@ -312,167 +312,250 @@ val call3 :
   'c expr ->
   'd expr
 
+(** [arg e vec] pushes [e] on the vector of arguments [vec] *)
 val arg : 'a expr -> ('b, 'c) args -> ('a expr -> 'b, 'c) args
 
+(** [empty_args] is the empty vector of arguments *)
 val empty_args : ('a expr, 'a expr) args
 
+(** [addr_of_arr arr] is the address of the array [arr] *)
 val addr_of_arr : ('a, [ `cst ]) arr expr -> ('a, [ `cst ]) arr ptr expr
 
+(** [addr_of_rec rec] is the address of the record [rec] *)
 val addr_of_rec : 'a record expr -> 'a record ptr expr
 
+(** [ptr_eq p1 p2] is true if the pointers [p1] and [p2] are equal *)
 val ptr_eq : 'a ptr expr -> 'a ptr expr -> bool expr
 
+(** [fail msg] raises a [Failure] exception with message [msg] *)
 val fail : string -> 'a expr
 
+(** [malloc ty] allocates a block of memory of type [ty] *)
 val malloc : 'a typ -> 'a ptr expr
 
+(** [malloc_array ty n] allocates a block of memory with [n] elements of type
+    [ty] *)
 val malloc_array : 'a typ -> i64 expr -> ('a, [ `unk ]) arr expr
 
+(** [free p] frees the memory block pointed to by [p] *)
 val free : 'a ptr expr -> unit expr
 
+(** [free_array arr] frees the memory block pointed to by [arr] *)
 val free_array : ('a, [ `unk ]) arr expr -> unit expr
 
+(** [trunc n1 n2] constructs a truncating cast from [n1] to [n2]. Returns [None]
+    if a truncation doesn't exist, e.g. if [n1] is smaller than [n2]. *)
 val trunc : 'a numerical -> 'b numerical -> 'a expr -> 'b expr
 
+(** [zext n1 n2] constructs a sign-extending cast from [n1] to [n2]. *)
 val sext : 'a numerical -> 'b numerical -> 'a expr -> 'b expr
 
+(** [zext n1 n2] constructs a zero-extending cast from [n1] to [n2]. *)
 val zext : 'a numerical -> 'b numerical -> 'a expr -> 'b expr
 
+(** [to_f32 n] constructs a cast from [n] to [f32]. *)
 val to_f32 : 'a numerical -> 'a expr -> f32 expr
 
+(** [to_f64 n] constructs a cast from [n] to [f64]. *)
 val to_f64 : 'a numerical -> 'a expr -> f64 expr
 
+(** [of_f32 n] constructs a cast from [f32] to [n]. *)
 val of_f32 : 'a numerical -> f32 expr -> 'a expr
 
+(** [of_f64 n] constructs a cast from [f64] to [n]. *)
 val of_f64 : 'a numerical -> f64 expr -> 'a expr
 
+(** [block stmts] is a block of statements [stmts]. *)
 val block : unit expr list -> unit expr
 
+(** The module [Stack] provoides primitives for describing stack frames. *)
 module Stack : sig
+  (** [end_frame body] marks the end of the stack frame declaration and takes as
+      argument the body of the function. *)
   val end_frame : 'a -> 'a stack
 
+  (** [stack_var @+ rest] declares a stack variable and continues with the
+      [rest] of the stack frame. *)
   val ( @+ ) : 'a stack_var -> ('a expr -> 'b stack) -> 'b stack
 
+  (** [unit] declares a stack variable of type [unit] *)
   val unit : unit ptr stack_var
 
+  (** [bool] declares a stack variable of type [bool] *)
   val bool : bool ptr stack_var
 
+  (** [num n] declares a stack variable of type [TNum n] *)
   val num : 'a numerical -> 'a ptr stack_var
 
+  (** [i64] declares a stack variable of type [i64] *)
   val i64 : i64 ptr stack_var
 
+  (** [i32] declares a stack variable of type [i32] *)
   val i32 : i32 ptr stack_var
 
+  (** [i16] declares a stack variable of type [i16] *)
   val i16 : i16 ptr stack_var
 
+  (** [i8] declares a stack variable of type [i8] *)
   val i8 : i8 ptr stack_var
 
+  (** [f64] declares a stack variable of type [f64] *)
   val f64 : f64 ptr stack_var
 
+  (** [f32] declares a stack variable of type [f32] *)
   val f32 : f32 ptr stack_var
 
+  (** [ptr ty] declares a stack variable of type [ptr ty] *)
   val ptr : 'a typ -> 'a ptr ptr stack_var
 
+  (** [arr ty n] declares a stack variable of type [arr ty n] *)
   val arr : 'a typ -> i64 expr -> ('a, [ `unk ]) arr stack_var
 
+  (** [arr_cst ty n] declares a stack variable of type [arr ty n] *)
   val arr_cst : 'a typ -> int64 -> ('a, [ `cst ]) arr stack_var
 
+  (** [strct desc] declares a stack variable of type [TRecord desc] *)
   val strct :
     ('a, 'b Vec.t, 'b Vec.t, 'c record) record_desc -> 'c record stack_var
 end
 
+(** Alias for [Stack.(@+)] *)
 val local : 'a stack_var -> ('a expr -> 'b stack) -> 'b stack
 
+(** Alias for [Stack.(@+)] *)
 val ( let*:: ) : 'a stack_var -> ('a expr -> 'b stack) -> 'b stack
 
+(** Alias for [Stack.end_frame] *)
 val end_frame : 'a -> 'a stack
 
+(** [fundecl name proto def] defines a function with name [name], type signature
+    [proto] and body [def]. Functions can be nested but it is a programming
+    error to refer to the local variables from an outer function. *)
 val fundecl : string -> 'a fn -> ('a fn expr -> 'a) stack -> 'a fn expr
 
+(** The [Run] module allows to call functions defined using this library from
+    OCaml. The entrypoint is a ['a module_] which is a list of function
+    definitions. Each function definition must specify its public interface,
+    which corresponds to a relation between Suplex types and OCaml types. *)
 module Run : sig
+  (** The type of arguments for functions callable from OCaml. The first type
+      parameters encodes the type of the argument for the suplex implementation
+      while the second type argument encodes the type of the values passed from
+      OCaml. *)
   type ('suplex, 'ocaml) rel
 
+  (** The type of vector of arguments for functions callable from OCaml. *)
   type ('suplex, 'ocaml) rel_vec
 
+  (** The type of functions callable from OCaml. *)
   type ('suplex, 'ocaml) fn_rel
 
+  (** The type of opaque structures. Used to pass ctypes struct to suplex
+      functions. *)
   type 'a opaque
 
+  (** The type of suplex modules. A suplex modules is a vector of function
+      definitions, including a {!amain} one. *)
   type 'a module_
 
+  (** The empty vector of arguments. *)
   val empty : (unit Vec.t, unit Vec.t) rel_vec
 
+  (** [|+] prepends an argument to a vector of arguments. *)
   val ( |+ ) :
     ('a Vec.t, 'b Vec.t) rel_vec ->
     ('c expr, 'd) rel ->
     (('c * 'a) Vec.t, ('d * 'b) Vec.t) rel_vec
 
+  (** Arguments of type [unit] *)
   val unit : (unit expr, unit) rel
 
+  (** Arguments of type [bool] *)
   val bool : (bool expr, bool) rel
 
+  (** Arguments of type [i64], passed as [int64] values. *)
   val i64 : (i64 expr, int64) rel
 
+  (** Arguments of type [i32], passed as [int32] values. *)
   val i32 : (i32 expr, int32) rel
 
+  (** Arguments of type [i16], passed as [int] values. *)
   val i16 : (i16 expr, int) rel
 
+  (** Arguments of type [i8], passed as [int] values. *)
   val i8 : (i8 expr, int) rel
 
+  (** Arguments of type [f64], passed as [float] values. *)
   val f64 : (f64 expr, float) rel
 
+  (** Arguments of type [f32], passed as [float] values. *)
   val f32 : (f32 expr, float) rel
 
+  (** Arguments of type [I64_ba.s record], passed as bigarrays containing
+      [int64] elements in C layout. *)
   val bigarray_i64 :
     ( I64_ba.s record expr,
       (int64, Bigarray.int64_elt, Bigarray.c_layout) Bigarray.Array1.t )
     rel
 
+  (** See {!bigarray_i64}. *)
   val bigarray_i32 :
     ( I32_ba.s record expr,
       (int32, Bigarray.int32_elt, Bigarray.c_layout) Bigarray.Array1.t )
     rel
 
+  (** See {!bigarray_i64}. *)
   val bigarray_i16 :
     ( I16_ba.s record expr,
       (int, Bigarray.int16_signed_elt, Bigarray.c_layout) Bigarray.Array1.t )
     rel
 
+  (** See {!bigarray_i64}. *)
   val bigarray_i8 :
     ( I8_ba.s record expr,
       (int, Bigarray.int8_signed_elt, Bigarray.c_layout) Bigarray.Array1.t )
     rel
 
+  (** See {!bigarray_i64}. *)
   val bigarray_f64 :
     ( F64_ba.s record expr,
       (float, Bigarray.float64_elt, Bigarray.c_layout) Bigarray.Array1.t )
     rel
 
+  (** See {!bigarray_i64}. *)
   val bigarray_f32 :
     ( F32_ba.s record expr,
       (float, Bigarray.float32_elt, Bigarray.c_layout) Bigarray.Array1.t )
     rel
 
+  (** Pointer to bytes arrays, passed as string values. *)
   val string : (i8 ptr expr, string) rel
 
+  (** Arrays of statically unknown sizes, passed as [Seq.t] iterators. *)
   val array_raw : ('a expr, 'b) rel -> (('a, [ `unk ]) arr expr, 'b Seq.t) rel
 
+  (** Arrays of statically known sizes, passed as [Seq.t] iterators. *)
   val array :
     int -> ('a expr, 'b) rel -> (('a, [ `cst ]) arr expr, 'b Seq.t) rel
 
+  (** Specify the relation between an open record and a vector of types. Used
+      together with {!mallocd_strct} *)
+  val strct :
+    ('a, 'b Vec.t, 'b Vec.t, 'c record) record_desc ->
+    ('b Vec.t, 'd Vec.t) rel_vec ->
+    ('c record expr, 'd Vec.t) rel
+
+  (** Open records, passed as vector of values used as initializer for a
+      malloc'd ctypes struct. *)
   val mallocd_strct :
     ('a, 'b Vec.t, 'b Vec.t, 'c record) record_desc ->
     ('b Vec.t, 'd Vec.t) rel_vec ->
     ('c record expr, 'd Vec.t) rel
 
+  (** Sealed records, passed as pointers to ctypes structs. *)
   val opaque_mallocd_strct :
     ('a, 'b Vec.t, 'b Vec.t, 'c record) record_desc ->
     ('c record expr, 'c opaque) rel
-
-  val strct :
-    ('a, 'b Vec.t, 'b Vec.t, 'c record) record_desc ->
-    ('b Vec.t, 'd Vec.t) rel_vec ->
-    ('c record expr, 'd Vec.t) rel
 
   val returning : ('a expr, 'b) rel -> ('a expr, 'b) fn_rel
 
@@ -486,12 +569,21 @@ module Run : sig
     ('a fn expr -> 'd module_) ->
     ('d * ('b -> 'c)) module_
 
+  (** [main name rel def] is the main function of a module.
+      { ul
+      {- [name] is the name of the function}
+      {- [rel] specifies the signature of the function}
+      {- [def] is the body of the function}
+      }
+  *)
   val main :
     string ->
     ('a, 'b -> 'c) fn_rel ->
     ('a fn expr -> 'a) stack ->
     ('b -> 'c) module_
 
+  (** [run_module ?debug ?cfg ?state mdl] compiles [mdl] and returns a vector of
+      callable functions. *)
   val run_module :
     ?debug:bool ->
     ?cfg:Llvm_executionengine.llcompileroptions ->
@@ -499,14 +591,18 @@ module Run : sig
     'a module_ ->
     'a
 
+  (** [run_program ?cfg ?state rel def] compiles [decl] into a function with
+      type specified by [rel]. *)
   val run_program :
     ?cfg:Llvm_executionengine.llcompileroptions ->
     ?state:Compile.llvm_state ->
-    'a fundecl ->
     ('a, 'b -> 'c) fn_rel ->
+    'a fundecl ->
     'b ->
     'c
 
+  (** [run ?cfg ?fname rel def] compiles the function specified by [def] with
+      type specified by [rel]. *)
   val run :
     ?cfg:Llvm_executionengine.llcompileroptions ->
     ?fname:string ->

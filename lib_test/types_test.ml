@@ -1,4 +1,5 @@
-open Suplex.Syntax
+(* open Suplex.Syntax *)
+open Suplex
 open Suplex.Types
 
 type r

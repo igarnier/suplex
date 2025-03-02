@@ -133,7 +133,6 @@ let test_nested_cond () =
 
 module Int64_pair = struct
   open Types
-  open Syntax
 
   type t
 
@@ -148,7 +147,6 @@ end
 
 module Int64_pair_pair = struct
   open Types
-  open Syntax
 
   type t
 
@@ -691,7 +689,7 @@ let test_switch_all_fail () =
 
 let test_bigarray : type ba s o.
     (module Numerical with type t = s and type v = o) ->
-    (module Run.BA with type elt = s and type s = ba) ->
+    (module BA with type elt = s and type s = ba) ->
     (ba record expr, (o, 'elt, Bigarray.c_layout) Bigarray.Array1.t) Run.rel ->
     (s expr, o) Run.rel ->
     (string -> o -> o -> unit) ->
@@ -699,7 +697,7 @@ let test_bigarray : type ba s o.
     o ->
     unit =
  fun (module N)
-     (module BA : Run.BA with type elt = s and type s = ba)
+     (module BA : BA with type elt = s and type s = ba)
      (rel :
        (ba record expr, (o, 'elt, Bigarray.c_layout) Bigarray.Array1.t) Run.rel)
      (retrel : (s expr, o) Run.rel)
@@ -724,7 +722,7 @@ let test_bigarray : type ba s o.
 let test_bigarray_i64 () =
   test_bigarray
     (module I64)
-    (module Run.I64_ba)
+    (module I64_ba)
     Run.bigarray_i64
     Run.i64
     Alcotest.(check int64)
@@ -737,7 +735,7 @@ let test_bigarray_i64 () =
 let test_bigarray_i32 () =
   test_bigarray
     (module I32)
-    (module Run.I32_ba)
+    (module I32_ba)
     Run.bigarray_i32
     Run.i32
     Alcotest.(check int32)
@@ -750,7 +748,7 @@ let test_bigarray_i32 () =
 let test_bigarray_i16 () =
   test_bigarray
     (module I16)
-    (module Run.I16_ba)
+    (module I16_ba)
     Run.bigarray_i16
     Run.i16
     Alcotest.(check int)
@@ -763,7 +761,7 @@ let test_bigarray_i16 () =
 let test_bigarray_i8 () =
   test_bigarray
     (module I8)
-    (module Run.I8_ba)
+    (module I8_ba)
     Run.bigarray_i8
     Run.i8
     Alcotest.(check int)
@@ -776,7 +774,7 @@ let test_bigarray_i8 () =
 let test_bigarray_f64 () =
   test_bigarray
     (module F64)
-    (module Run.F64_ba)
+    (module F64_ba)
     Run.bigarray_f64
     Run.f64
     Alcotest.(check (float 0.00001))
@@ -789,7 +787,7 @@ let test_bigarray_f64 () =
 let test_bigarray_f32 () =
   test_bigarray
     (module F32)
-    (module Run.F32_ba)
+    (module F32_ba)
     Run.bigarray_f32
     Run.f32
     Alcotest.(check (float 0.00001))

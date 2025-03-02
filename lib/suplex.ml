@@ -2,43 +2,54 @@ module Vec = Vec
 module Types = Types
 module Syntax = Syntax
 module Compile = Compile
-module Intf = Intf
-module Type_system = Type_system
+open Syntax
 
-module Llvm_impl : sig
-  include Intf.S with type Exec.cfg = Llvm_executionengine.llcompileroptions
+type i64 = Syntax.i64 = I64
 
-  val set_debug_metadata : string -> unit
-end =
-  Llvm_impl
+type i32 = Syntax.i32 = I32
 
-type i64 = Type_system.i64 = I64
+type i16 = Syntax.i16 = I16
 
-type i32 = Type_system.i32 = I32
+type i8 = Syntax.i8 = I8
 
-type i16 = Type_system.i16 = I16
+type f32 = Syntax.f32 = F32
 
-type i8 = Type_system.i8 = I8
+type f64 = Syntax.f64 = F64
 
-type f32 = Type_system.f32 = F32
+type 'a numerical = 'a Syntax.numerical =
+  | I64_num : i64 numerical
+  | I32_num : i32 numerical
+  | I16_num : i16 numerical
+  | I8_num : i8 numerical
+  | F64_num : f64 numerical
+  | F32_num : f32 numerical
 
-type f64 = Type_system.f64 = F64
-
-type 'a numerical = 'a Type_system.numerical =
-  | I64_num : Type_system.i64 numerical
-  | I32_num : Type_system.i32 numerical
-  | I16_num : Type_system.i16 numerical
-  | I8_num : Type_system.i8 numerical
-  | F32_num : Type_system.f32 numerical
-  | F64_num : Type_system.f64 numerical
+type 'a typ = 'a Syntax.typ
 
 type 'a ptr = 'a Syntax.ptr = Ptr
 
 type 'a record = 'a Syntax.record = Record
 
-open Syntax
+type ('a, 'b, 'c, 'd) record_desc = ('a, 'b, 'c, 'd) Syntax.record_desc
+
+type ('f, 'r) field = ('f, 'r) Syntax.field =
+  | Field : { name : string; ty : 'a typ } -> ('a, 't) field
+
+type ('a, 'k) arr = ('a, 'k) Syntax.arr
+
+type 'a fn = 'a Syntax.fn
+
+type 'a stack = 'a Syntax.stack
+
+type 'a stack_var = 'a Syntax.stack_var
 
 type 'a expr = 'a Syntax.expr
+
+type 'a fundecl = 'a Syntax.fundecl
+
+type ('a, 'b) args = ('a, 'b) Syntax.args
+
+type ('s, 'o) num_rel = ('s, 'o) Syntax.num_rel
 
 module type Numerical = sig
   (** [t] is the numerical type. *)
@@ -121,7 +132,7 @@ module I64 = Make_numerical (struct
 
   type v = int64
 
-  let v x = I64 x
+  let v x : t expr = I64 x
 
   let rel = I64_rel
 
@@ -135,7 +146,7 @@ module I32 = Make_numerical (struct
 
   type v = int32
 
-  let v x = I32 x
+  let v x : t expr = I32 x
 
   let rel = I32_rel
 
@@ -149,7 +160,7 @@ module I16 = Make_numerical (struct
 
   type v = int
 
-  let v x = I16 x
+  let v x : t expr = I16 x
 
   let rel = I16_rel
 
@@ -163,7 +174,7 @@ module I8 = Make_numerical (struct
 
   type v = int
 
-  let v x = I8 x
+  let v x : t expr = I8 x
 
   let rel = I8_rel
 
@@ -177,7 +188,7 @@ module F64 = Make_numerical (struct
 
   type v = float
 
-  let v x = F64 x
+  let v x : t expr = F64 x
 
   let rel = F64_rel
 
@@ -191,7 +202,7 @@ module F32 = Make_numerical (struct
 
   type v = float
 
-  let v x = F32 x
+  let v x : t expr = F32 x
 
   let rel = F32_rel
 
@@ -199,6 +210,15 @@ module F32 = Make_numerical (struct
 
   let one = v 1.0
 end)
+
+module type BA = Run.BA
+
+module I64_ba = Run.I64_ba
+module I32_ba = Run.I32_ba
+module I16_ba = Run.I16_ba
+module I8_ba = Run.I8_ba
+module F64_ba = Run.F64_ba
+module F32_ba = Run.F32_ba
 
 let ( let* ) m f = Let (m, f)
 
@@ -208,8 +228,8 @@ let tt = True
 
 let ff = False
 
-let const_array (type t v)
-    (module N : oNumerical with type t = t and type v = v) len =
+let const_array (type t v) (module N : Numerical with type t = t and type v = v)
+    len =
   Const_array (N.rel, len)
 
 let string ?(strz = false) str = String { strz; str }
@@ -256,6 +276,8 @@ let call2 f arg1 arg2 = Call (f, Args_cons (arg1, Args_cons (arg2, Args_nil)))
 
 let call3 f arg1 arg2 arg3 =
   Call (f, Args_cons (arg1, Args_cons (arg2, Args_cons (arg3, Args_nil))))
+
+let empty_args = Args_nil
 
 let arg a rest = Args_cons (a, rest)
 
@@ -306,6 +328,14 @@ module Run = struct
   module F32_ba = Run.F32_ba
 
   type ('suplex, 'ocaml) rel = ('suplex, 'ocaml) Run.rel
+
+  type ('suplex, 'ocaml) rel_vec = ('suplex, 'ocaml) Run.rel_vec
+
+  type ('suplex, 'ocaml) fn_rel = ('suplex, 'ocaml) Run.fn_rel
+
+  type 'a opaque = 'a Run.opaque
+
+  type 'a module_ = 'a Run.module_
 
   let empty = Vec []
 

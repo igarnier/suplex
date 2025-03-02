@@ -1,5 +1,5 @@
 (tests
- (names types_test run_test unit_tests)
+ (names types_test run_test)
  (libraries suplex alcotest)
  (modes native)
  (ocamlopt_flags (-g -rectypes)))

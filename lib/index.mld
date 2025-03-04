@@ -1,8 +1,9 @@
 {0 suplex: a typed embedding of a C-like language in OCaml }
 
-The library {b suplex} provides a typed eDSL to perform C-like programming
-in OCaml, and run this code efficiently from OCaml. The goal is to provide
-an easy-to-use execution target when metaprogramming.
+The library {b Suplex} provides a typed C-like DSL embedding in OCaml,
+together with an LLVM-based JIT and uses ctypes to run this code directly from OCaml.
+The goal is to provide an easy-to-use and typed execution target for metaprogramming applications.
+Note however that the language is not memory safe!
 
 {1 Example}
 
@@ -26,7 +27,7 @@ let fact : int64 -> int64 =
       ~*acc )
 ]}
 
-Let's dissect that example, top-down. [Run.run] reifies a {b suplex} program into a function callable from OCaml.
+Let's dissect that example. [Run.run] reifies a {b suplex} program into a function callable from OCaml.
 [Run.run] takes three arguments.
 - The first is the function prototype: here, it takes a single 64-bit signed integer and returns a value of the same type.
 - The second is a description of the stack frame, which here contains a single 64-bit signed integer called [acc].

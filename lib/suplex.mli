@@ -594,6 +594,7 @@ module Run : sig
   (** [run_program ?cfg ?state rel def] compiles [decl] into a function with
       type specified by [rel]. *)
   val run_program :
+    ?debug:bool ->
     ?cfg:Llvm_executionengine.llcompileroptions ->
     ?state:Compile.llvm_state ->
     ('a, 'b -> 'c) fn_rel ->
@@ -604,6 +605,7 @@ module Run : sig
   (** [run ?cfg ?fname rel def] compiles the function specified by [def] with
       type specified by [rel]. *)
   val run :
+    ?debug:bool ->
     ?cfg:Llvm_executionengine.llcompileroptions ->
     ?fname:string ->
     ('a, 'b -> 'c) fn_rel ->

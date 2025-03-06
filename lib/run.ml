@@ -615,10 +615,10 @@ let run_module : type s.
     !roots ;
   res
 
-let run_program (type s tdom trange) ?cfg ?state
+let run_program (type s tdom trange) ?debug ?cfg ?state
     (rel : (s, tdom -> trange) fn_rel) (fdecl : s fundecl) : tdom -> trange =
-  run_module ?cfg ?state (Main { fdecl; rel })
+  run_module ?debug ?cfg ?state (Main { fdecl; rel })
 
-let run ?cfg ?(fname = "main") (Fn rel as fn_rel) body =
+let run ?debug ?cfg ?(fname = "main") (Fn rel as fn_rel) body =
   let sg = prototype_of_rel rel in
-  run_program ?cfg fn_rel { name = fname; sg; body }
+  run_program ?debug ?cfg fn_rel { name = fname; sg; body }

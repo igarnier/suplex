@@ -333,7 +333,7 @@ let rec compile : type a.
       let* l = compile env state l in
       let* r = compile env state r in
       with_type Types.bool
-      @@ Llvm.build_or l.value r.value "bool_and" (get_builder state)
+      @@ Llvm.build_or l.value r.value "bool_or" (get_builder state)
   | I64 i ->
       with_type Types.i64
       @@ Llvm.const_int (LLVM_type.int64_t state.llvm_context) (Int64.to_int i)

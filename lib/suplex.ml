@@ -461,3 +461,7 @@ module Run = struct
 
   let run = Run.run
 end
+
+module Externals = struct
+  external fail : unit -> unit = "failwith" [@@ocaml.warning "-32"]
+end

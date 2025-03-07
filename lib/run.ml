@@ -20,9 +20,10 @@ module type BA = sig
   type s
 
   val r :
-    ( (unit * (i64, s record) field) * ((elt, [ `unk ]) arr, s record) field,
-      ((elt, [ `unk ]) arr * (i64 * unit)) Vec.t,
-      ((elt, [ `unk ]) arr * (i64 * unit)) Vec.t,
+    ( (unit * (i64 scalar, s record) field)
+      * ((elt, [ `unk ]) arr, s record) field,
+      ((elt, [ `unk ]) arr * (i64 scalar * unit)) Vec.t,
+      ((elt, [ `unk ]) arr * (i64 scalar * unit)) Vec.t,
       s record )
     record_desc
 
@@ -30,7 +31,7 @@ module type BA = sig
 
   val data : ((elt, [ `unk ]) arr, s record) field
 
-  val dim : (i64, s record) field
+  val dim : (i64 scalar, s record) field
 end
 
 module type BA_private = sig
@@ -104,7 +105,7 @@ end) : BA_private with type elt = X.s and type c_elt = X.c = struct
 end
 
 module I64_ba = Make_suplex_bigarray_struct (struct
-  type s = i64
+  type s = i64 scalar
 
   type c = int64
 
@@ -112,7 +113,7 @@ module I64_ba = Make_suplex_bigarray_struct (struct
 end)
 
 module I32_ba = Make_suplex_bigarray_struct (struct
-  type s = i32
+  type s = i32 scalar
 
   type c = int32
 
@@ -120,7 +121,7 @@ module I32_ba = Make_suplex_bigarray_struct (struct
 end)
 
 module I16_ba = Make_suplex_bigarray_struct (struct
-  type s = i16
+  type s = i16 scalar
 
   type c = int
 
@@ -128,7 +129,7 @@ module I16_ba = Make_suplex_bigarray_struct (struct
 end)
 
 module I8_ba = Make_suplex_bigarray_struct (struct
-  type s = i8
+  type s = i8 scalar
 
   type c = int
 
@@ -136,7 +137,7 @@ module I8_ba = Make_suplex_bigarray_struct (struct
 end)
 
 module F64_ba = Make_suplex_bigarray_struct (struct
-  type s = f64
+  type s = f64 scalar
 
   type c = float
 
@@ -144,7 +145,7 @@ module F64_ba = Make_suplex_bigarray_struct (struct
 end)
 
 module F32_ba = Make_suplex_bigarray_struct (struct
-  type s = f32
+  type s = f32 scalar
 
   type c = float
 
@@ -154,13 +155,13 @@ end)
 type (_, _, _) full_rel =
   | Full_rel_unit : (unit expr, unit, bool) full_rel
   | Full_rel_bool : (bool expr, bool, bool) full_rel
-  | Full_rel_int64 : (i64 expr, int64, int64) full_rel
-  | Full_rel_int32 : (i32 expr, int32, int32) full_rel
-  | Full_rel_int16 : (i16 expr, int, int) full_rel
-  | Full_rel_int8 : (i8 expr, int, int) full_rel
-  | Full_rel_float64 : (f64 expr, float, float) full_rel
-  | Full_rel_float32 : (f32 expr, float, float) full_rel
-  | Full_rel_string : (i8 ptr expr, string, string) full_rel
+  | Full_rel_int64 : (i64 scalar expr, int64, int64) full_rel
+  | Full_rel_int32 : (i32 scalar expr, int32, int32) full_rel
+  | Full_rel_int16 : (i16 scalar expr, int, int) full_rel
+  | Full_rel_int8 : (i8 scalar expr, int, int) full_rel
+  | Full_rel_float64 : (f64 scalar expr, float, float) full_rel
+  | Full_rel_float32 : (f32 scalar expr, float, float) full_rel
+  | Full_rel_string : (i8 scalar ptr expr, string, string) full_rel
   | Full_rel_ba_i64 :
       ( I64_ba.s record expr,
         (int64, Bigarray.int64_elt, Bigarray.c_layout) Bigarray.Array1.t,

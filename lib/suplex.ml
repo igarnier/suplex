@@ -16,13 +16,17 @@ type f32 = Syntax.f32 = F32
 
 type f64 = Syntax.f64 = F64
 
+type 'a base_numerical = 'a Syntax.base_numerical =
+  | I64_num : i64 base_numerical
+  | I32_num : i32 base_numerical
+  | I16_num : i16 base_numerical
+  | I8_num : i8 base_numerical
+  | F64_num : f64 base_numerical
+  | F32_num : f32 base_numerical
+
 type 'a numerical = 'a Syntax.numerical =
-  | I64_num : i64 numerical
-  | I32_num : i32 numerical
-  | I16_num : i16 numerical
-  | I8_num : i8 numerical
-  | F64_num : f64 numerical
-  | F32_num : f32 numerical
+  | Base_num : 'a base_numerical -> 'a scalar numerical
+  | Vec_num : { base : 'a base_numerical; numel : int } -> 'a vec numerical
 
 type 'a typ = 'a Syntax.typ
 
@@ -128,7 +132,7 @@ end) : Numerical with type t = Num.t and type v = Num.v = struct
 end
 
 module I64 = Make_numerical (struct
-  type t = i64
+  type t = i64 scalar
 
   type v = int64
 
@@ -142,7 +146,7 @@ module I64 = Make_numerical (struct
 end)
 
 module I32 = Make_numerical (struct
-  type t = i32
+  type t = i32 scalar
 
   type v = int32
 
@@ -156,7 +160,7 @@ module I32 = Make_numerical (struct
 end)
 
 module I16 = Make_numerical (struct
-  type t = i16
+  type t = i16 scalar
 
   type v = int
 
@@ -170,7 +174,7 @@ module I16 = Make_numerical (struct
 end)
 
 module I8 = Make_numerical (struct
-  type t = i8
+  type t = i8 scalar
 
   type v = int
 
@@ -184,7 +188,7 @@ module I8 = Make_numerical (struct
 end)
 
 module F64 = Make_numerical (struct
-  type t = f64
+  type t = f64 scalar
 
   type v = float
 
@@ -198,7 +202,7 @@ module F64 = Make_numerical (struct
 end)
 
 module F32 = Make_numerical (struct
-  type t = f32
+  type t = f32 scalar
 
   type v = float
 
@@ -298,7 +302,7 @@ let free ptr = Free ptr
 let free_array arr = Free_array arr
 
 let can_be_truncated : type a b.
-    a numerical -> b numerical -> (unit, string) Result.t =
+    a base_numerical -> b base_numerical -> (unit, string) Result.t =
  fun n1 n2 ->
   match (n1, n2) with
   | (I64_num, I32_num)
@@ -312,9 +316,9 @@ let can_be_truncated : type a b.
       Format.kasprintf
         Result.error
         "Cannot truncate %a to %a"
-        Types.pp_numerical
+        Types.pp_base_numerical
         n1
-        Types.pp_numerical
+        Types.pp_base_numerical
         n2
 
 let trunc src dst v =

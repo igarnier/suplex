@@ -10,13 +10,21 @@ type f32 = F32
 
 type f64 = F64
 
+type 'a scalar = Scalar
+
+type 'a vec = Vector
+
+type 'a base_numerical =
+  | I64_num : i64 base_numerical
+  | I32_num : i32 base_numerical
+  | I16_num : i16 base_numerical
+  | I8_num : i8 base_numerical
+  | F64_num : f64 base_numerical
+  | F32_num : f32 base_numerical
+
 type 'a numerical =
-  | I64_num : i64 numerical
-  | I32_num : i32 numerical
-  | I16_num : i16 numerical
-  | I8_num : i8 numerical
-  | F64_num : f64 numerical
-  | F32_num : f32 numerical
+  | Base_num : 'a base_numerical -> 'a scalar numerical
+  | Vec_num : { base : 'a base_numerical; numel : int } -> 'a vec numerical
 
 type 'a typ
 

@@ -26,30 +26,38 @@ type 'a ptr = Ptr
     array has a statically known size or not. *)
 type (!'a, 'c) arr = Arr
 
+type 'a scalar = Scalar
+
+type 'a vec = Vector
+
 type 'a record = Record
 
-(** ['a numerical] is the type of all {b suplex} numerical types. *)
+(** ['a base_numerical] is the type of all base {b suplex} numerical types. *)
+type 'a base_numerical =
+  | I64_num : i64 base_numerical
+  | I32_num : i32 base_numerical
+  | I16_num : i16 base_numerical
+  | I8_num : i8 base_numerical
+  | F64_num : f64 base_numerical
+  | F32_num : f32 base_numerical
+
 type 'a numerical =
-  | I64_num : i64 numerical
-  | I32_num : i32 numerical
-  | I16_num : i16 numerical
-  | I8_num : i8 numerical
-  | F64_num : f64 numerical
-  | F32_num : f32 numerical
+  | Base_num : 'a base_numerical -> 'a scalar numerical
+  | Vec_num : { base : 'a base_numerical; numel : int } -> 'a vec numerical
 
 (** {2 Relationship between numerical types and OCaml values *)
 
 type (_, _) num_rel =
-  | I64_rel : (i64, int64) num_rel
-  | I32_rel : (i32, int32) num_rel
-  | I16_rel : (i16, int) num_rel
-  | I8_rel : (i8, int) num_rel
-  | F64_rel : (f64, float) num_rel
-  | F32_rel : (f32, float) num_rel
+  | I64_rel : (i64 scalar, int64) num_rel
+  | I32_rel : (i32 scalar, int32) num_rel
+  | I16_rel : (i16 scalar, int) num_rel
+  | I8_rel : (i8 scalar, int) num_rel
+  | F64_rel : (f64 scalar, float) num_rel
+  | F32_rel : (f32 scalar, float) num_rel
 
-(** Classifies numerical types into floating-point kind [`fp] or integer kind
-    [`int]. *)
-let numerical_kind : type a. a numerical -> [ `fp | `int ] =
+(** Classifies base numerical types into floating-point kind [`fp] or integer
+    kind [`int]. *)
+let base_numerical_kind : type a. a base_numerical -> [ `fp | `int ] =
  fun n ->
   match n with
   | I64_num -> `int
@@ -58,6 +66,14 @@ let numerical_kind : type a. a numerical -> [ `fp | `int ] =
   | I8_num -> `int
   | F32_num -> `fp
   | F64_num -> `fp
+
+(** Classifies base numerical types into floating-point kind [`fp] or integer
+    kind [`int]. *)
+let numerical_kind : type a. a numerical -> [ `fp | `int ] =
+ fun n ->
+  match n with
+  | Base_num n -> base_numerical_kind n
+  | Vec_num { base; _ } -> base_numerical_kind base
 
 (** ['a typ] is the type of {b suplex} types. *)
 type 'a typ =
@@ -112,15 +128,15 @@ and _ expr =
   | Unit : unit expr
   | True : bool expr
   | False : bool expr
-  | String : { strz : bool; str : string } -> i8 ptr expr
+  | String : { strz : bool; str : string } -> i8 scalar ptr expr
   | And : bool expr * bool expr -> bool expr
   | Or : bool expr * bool expr -> bool expr
-  | I64 : int64 -> i64 expr
-  | I32 : int32 -> i32 expr
-  | I16 : int -> i16 expr
-  | I8 : int -> i8 expr
-  | F64 : float -> f64 expr
-  | F32 : float -> f32 expr
+  | I64 : int64 -> i64 scalar expr
+  | I32 : int32 -> i32 scalar expr
+  | I16 : int -> i16 scalar expr
+  | I8 : int -> i8 scalar expr
+  | F64 : float -> f64 scalar expr
+  | F32 : float -> f32 scalar expr
   | Add : 'a numerical * 'a expr * 'a expr -> 'a expr
   | Sub : 'a numerical * 'a expr * 'a expr -> 'a expr
   | Mul : 'a numerical * 'a expr * 'a expr -> 'a expr
@@ -135,47 +151,47 @@ and _ expr =
   | NullPtr : 'a typ -> 'a ptr expr
   | IsNull : 'a ptr expr -> bool expr
   | AddrOf : 'a addressable * 'a expr -> 'a ptr expr
-  | Get : ('a, 'c) arr expr * i64 expr -> 'a expr
-  | GetAddr : ('a, 'c) arr expr * i64 expr -> 'a ptr expr
-  | Set : ('a, 'c) arr expr * i64 expr * 'a expr -> unit expr
+  | Get : ('a, 'c) arr expr * i64 scalar expr -> 'a expr
+  | GetAddr : ('a, 'c) arr expr * i64 scalar expr -> 'a ptr expr
+  | Set : ('a, 'c) arr expr * i64 scalar expr * 'a expr -> unit expr
   | GetField : ('a, 'u record) field * 'u record expr -> 'a expr
   | GetFieldAddr : ('a, 'u record) field * 'u record expr -> 'a ptr expr
   | SetField : ('a, 'u record) field * 'u record expr * 'a expr -> unit expr
   | Cond : bool expr * 'a expr * 'a expr -> 'a expr
   | For :
-      { init : i64 expr;
-        pred : i64 expr -> bool expr;
-        step : i64 expr -> i64 expr;
-        body : i64 expr -> unit expr
+      { init : i64 scalar expr;
+        pred : i64 scalar expr -> bool expr;
+        step : i64 scalar expr -> i64 scalar expr;
+        body : i64 scalar expr -> unit expr
       }
       -> unit expr
   | Foldi :
-      { init : i64 expr;
+      { init : i64 scalar expr;
         acc : 'acc expr;
-        pred : i64 expr -> 'acc expr -> bool expr;
-        step : i64 expr -> i64 expr;
-        body : i64 expr -> 'acc expr -> 'acc expr
+        pred : i64 scalar expr -> 'acc expr -> bool expr;
+        step : i64 scalar expr -> i64 expr;
+        body : i64 scalar expr -> 'acc expr -> 'acc expr
       }
       -> 'acc expr
   | While : bool expr * unit expr -> unit expr
   | Switch :
-      { e : i64 expr; cases : (int64 * 'a expr) list; default : 'a expr }
+      { e : i64 scalar expr; cases : (int64 * 'a expr) list; default : 'a expr }
       -> 'a expr
   | Fundecl : 'a fundecl -> 'a fn expr
   | Call : 'a fn expr * ('a, 'b expr) args -> 'b expr
   | Fail : string -> 'a expr
   | Malloc : 'a typ -> 'a ptr expr
-  | Malloc_array : 'a typ * i64 expr -> ('a, [ `unk ]) arr expr
+  | Malloc_array : 'a typ * i64 scalar expr -> ('a, [ `unk ]) arr expr
   | Free : 'a ptr expr -> unit expr
   | Free_array : ('a, [ `unk ]) arr expr -> unit expr
   | Const_array : ('s, 'o) num_rel * 'o array -> ('s, [ `cst ]) arr expr
   | Trunc : 'a numerical * 'b numerical * 'a expr -> 'b expr
   | SExt : 'a numerical * 'b numerical * 'a expr -> 'b expr
   | ZExt : 'a numerical * 'b numerical * 'a expr -> 'b expr
-  | ToF32 : 'a numerical * 'a expr -> f32 expr
-  | ToF64 : 'a numerical * 'a expr -> f64 expr
-  | OfF32 : 'a numerical * f32 expr -> 'a expr
-  | OfF64 : 'a numerical * f64 expr -> 'a expr
+  | ToF32 : 'a base_numerical * 'a scalar expr -> f32 scalar expr
+  | ToF64 : 'a base_numerical * 'a scalar expr -> f64 scalar expr
+  | OfF32 : 'a base_numerical * f32 scalar expr -> 'a scalar expr
+  | OfF64 : 'a base_numerical * f64 scalar expr -> 'a scalar expr
 
 and 'a typed_llvm = { value : Llvm.llvalue; ty : 'a typ }
 
@@ -230,17 +246,19 @@ module Stack = struct
 
   let num n = SV_num n
 
-  let i64 = num I64_num
+  let base_num n = SV_num (Base_num n)
 
-  let i32 = num I32_num
+  let i64 = base_num I64_num
 
-  let i16 = num I16_num
+  let i32 = base_num I32_num
 
-  let i8 = num I8_num
+  let i16 = base_num I16_num
 
-  let f64 = num F64_num
+  let i8 = base_num I8_num
 
-  let f32 = num F32_num
+  let f64 = base_num F64_num
+
+  let f32 = base_num F32_num
 
   let ptr ty = SV_ptr ty
 

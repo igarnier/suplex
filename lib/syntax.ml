@@ -137,6 +137,7 @@ and _ expr =
   | I8 : int -> i8 expr
   | F64 : float -> f64 expr
   | F32 : float -> f32 expr
+  | Vec : ('s, 'o) num_rel * 'sz Size.t * 'o array -> ('s, 'sz) vec expr
   | Add : 'a numerical * 'a expr * 'a expr -> 'a expr
   | Sub : 'a numerical * 'a expr * 'a expr -> 'a expr
   | Mul : 'a numerical * 'a expr * 'a expr -> 'a expr

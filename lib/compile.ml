@@ -3,15 +3,18 @@ open Syntax
 
 let sf = Printf.sprintf
 
-let numerical_of_num_rel : type s o. (s, o) num_rel -> s numerical =
+let base_numerical_of_num_rel : type s o. (s, o) num_rel -> s base_numerical =
  fun rel ->
   match rel with
-  | I64_rel -> Base_num I64_num
-  | I32_rel -> Base_num I32_num
-  | I16_rel -> Base_num I16_num
-  | I8_rel -> Base_num I8_num
-  | F64_rel -> Base_num F64_num
-  | F32_rel -> Base_num F32_num
+  | I64_rel -> I64_num
+  | I32_rel -> I32_num
+  | I16_rel -> I16_num
+  | I8_rel -> I8_num
+  | F64_rel -> F64_num
+  | F32_rel -> F32_num
+
+let numerical_of_num_rel : type s o. (s, o) num_rel -> s numerical =
+ fun rel -> Base_num (base_numerical_of_num_rel rel)
 
 let cast_base_vector_type : type a b sz.
     (a, sz) vec numerical -> b base_numerical -> (b, sz) vec numerical =
@@ -314,6 +317,27 @@ let const : type s o. (s, o) num_rel -> o -> s expr =
 
 (* Invariant: expression of type array_cst is a pointer to the array on the LLVM side *)
 
+let compile_const : type s o.
+    Llvm.llcontext -> (s, o) num_rel -> o -> s typed_llvm option =
+ fun llvm_context rel v ->
+  match rel with
+  | I64_rel ->
+      with_type Types.i64
+      @@ Llvm.const_int (LLVM_type.int64_t llvm_context) (Int64.to_int v)
+  | I32_rel ->
+      with_type Types.i32
+      @@ Llvm.const_int (LLVM_type.int32_t llvm_context) (Int32.to_int v)
+  | I16_rel ->
+      with_type Types.i16 @@ Llvm.const_int (LLVM_type.int16_t llvm_context) v
+  | I8_rel ->
+      with_type Types.i8 @@ Llvm.const_int (LLVM_type.int8_t llvm_context) v
+  | F64_rel ->
+      with_type Types.f64
+      @@ Llvm.const_float (LLVM_type.float64_t llvm_context) v
+  | F32_rel ->
+      with_type Types.f32
+      @@ Llvm.const_float (LLVM_type.float32_t llvm_context) v
+
 let rec compile : type a.
     environment -> llvm_state -> a expr -> a typed_llvm option =
  fun env state expr ->
@@ -349,24 +373,36 @@ let rec compile : type a.
       let* r = compile env state r in
       with_type Types.bool
       @@ Llvm.build_or l.value r.value "bool_or" (get_builder state)
-  | I64 i ->
-      with_type Types.i64
-      @@ Llvm.const_int (LLVM_type.int64_t state.llvm_context) (Int64.to_int i)
-  | I32 i ->
-      with_type Types.i32
-      @@ Llvm.const_int (LLVM_type.int32_t state.llvm_context) (Int32.to_int i)
-  | I16 i ->
-      with_type Types.i16
-      @@ Llvm.const_int (LLVM_type.int16_t state.llvm_context) i
-  | I8 i ->
-      with_type Types.i8
-      @@ Llvm.const_int (LLVM_type.int8_t state.llvm_context) i
-  | F64 f ->
-      with_type Types.f64
-      @@ Llvm.const_float (LLVM_type.float64_t state.llvm_context) f
-  | F32 f ->
-      with_type Types.f32
-      @@ Llvm.const_float (LLVM_type.float32_t state.llvm_context) f
+  | I64 i -> compile_const state.llvm_context I64_rel i
+  | I32 i -> compile_const state.llvm_context I32_rel i
+  | I16 i -> compile_const state.llvm_context I16_rel i
+  | I8 i -> compile_const state.llvm_context I8_rel i
+  | F64 f -> compile_const state.llvm_context F64_rel f
+  | F32 f -> compile_const state.llvm_context F32_rel f
+  | Vec (num_rel, sz, values) ->
+      if Size.to_int sz <> Array.length values then
+        Format.kasprintf
+          failwith
+          "When constructing vector: vector of values has length %d, expected \
+           %d"
+          (Array.length values)
+          (Size.to_int sz) ;
+      let values =
+        try
+          Array.map
+            (fun v ->
+              match compile_const state.llvm_context num_rel v with
+              | None -> raise Exit
+              | Some v -> v.value)
+            values
+        with Exit ->
+          Format.kasprintf
+            failwith
+            "When constructing vector: could not compile constant"
+      in
+      with_type
+        (Types.vec (base_numerical_of_num_rel num_rel) sz)
+        (Llvm.const_vector values)
   | Const_array (numrel, arr) ->
       let ty =
         LLVM_type.storage_of_type
@@ -377,7 +413,7 @@ let rec compile : type a.
         Array.map
           (fun v ->
             (* Converting a constant should never fail *)
-            let v_opt = compile env state (const numrel v) in
+            let v_opt = compile_const state.llvm_context numrel v in
             let v = match v_opt with None -> assert false | Some v -> v in
             v.value)
           arr
@@ -759,7 +795,6 @@ let rec compile : type a.
           let _ =
             Llvm.build_cond_br cond.value for_body for_exit (get_builder state)
           in
-
           Llvm.position_at_end for_body (get_builder state) ;
           let* _body = compile for_env state (body for_var) in
           let* next = compile for_env state (step for_var) in

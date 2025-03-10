@@ -1,22 +1,58 @@
-type i64 = I64
+module Size : sig
+  type _1 = private Size_1
 
-type i32 = I32
+  type _2 = private Size_2
 
-type i16 = I16
+  type _4 = private Size_4
 
-type i8 = I8
+  type _8 = private Size_8
 
-type f32 = F32
+  type _16 = private Size_16
 
-type f64 = F64
+  type 'a t
 
-type 'a numerical =
-  | I64_num : i64 numerical
-  | I32_num : i32 numerical
-  | I16_num : i16 numerical
-  | I8_num : i8 numerical
-  | F64_num : f64 numerical
-  | F32_num : f32 numerical
+  val _1 : _1 t
+
+  val _2 : _2 t
+
+  val _4 : _4 t
+
+  val _8 : _8 t
+
+  val _16 : _16 t
+
+  val to_int : 'a t -> int
+
+  val equal : 'a t -> 'b t -> ('a, 'b) Type.eq option
+end
+
+type i64 = private I64
+
+type i32 = private I32
+
+type i16 = private I16
+
+type i8 = private I8
+
+type f32 = private F32
+
+type f64 = private F64
+
+type ('a, 'sz) vec = private Vector
+
+type 'a base_numerical = private
+  | I64_num : i64 base_numerical
+  | I32_num : i32 base_numerical
+  | I16_num : i16 base_numerical
+  | I8_num : i8 base_numerical
+  | F64_num : f64 base_numerical
+  | F32_num : f32 base_numerical
+
+type 'a numerical = private
+  | Base_num : 'a base_numerical -> 'a numerical
+  | Vec_num :
+      { base : 'a base_numerical; numel : 'sz Size.t }
+      -> ('a, 'sz) vec numerical
 
 type 'a typ
 
@@ -354,16 +390,16 @@ val sext : 'a numerical -> 'b numerical -> 'a expr -> 'b expr
 val zext : 'a numerical -> 'b numerical -> 'a expr -> 'b expr
 
 (** [to_f32 n] constructs a cast from [n] to [f32]. *)
-val to_f32 : 'a numerical -> 'a expr -> f32 expr
+val to_f32 : 'a base_numerical -> 'a expr -> f32 expr
 
 (** [to_f64 n] constructs a cast from [n] to [f64]. *)
-val to_f64 : 'a numerical -> 'a expr -> f64 expr
+val to_f64 : 'a base_numerical -> 'a expr -> f64 expr
 
 (** [of_f32 n] constructs a cast from [f32] to [n]. *)
-val of_f32 : 'a numerical -> f32 expr -> 'a expr
+val of_f32 : 'a base_numerical -> f32 expr -> 'a expr
 
 (** [of_f64 n] constructs a cast from [f64] to [n]. *)
-val of_f64 : 'a numerical -> f64 expr -> 'a expr
+val of_f64 : 'a base_numerical -> f64 expr -> 'a expr
 
 (** [block stmts] is a block of statements [stmts]. *)
 val block : unit expr list -> unit expr

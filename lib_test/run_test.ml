@@ -59,8 +59,8 @@ let test_fact_while () =
   @@ (List.map
         (Run.run
            Run.(i64 @-> returning i64)
-           ( local Stack.(num I64_num) @@ fun acc ->
-             local Stack.(num I64_num) @@ fun i ->
+           ( local Stack.i64 @@ fun acc ->
+             local Stack.i64 @@ fun i ->
              end_frame @@ fun _self n ->
              let* _ = acc <-- I64.one in
              let* _ = i <-- I64.one in
@@ -100,7 +100,7 @@ let test_nested_switch () =
     (List.map
        (Run.run
           Run.(i64 @-> returning i64)
-          ( local Stack.(num I64_num) @@ fun local ->
+          ( local Stack.i64 @@ fun local ->
             end_frame @@ fun _self x ->
             let* _ = local <-- I64.div x (I64.v 2L) in
             switch
@@ -118,7 +118,7 @@ let test_nested_cond () =
     (List.map
        (Run.run
           Run.(i64 @-> returning i64)
-          ( local Stack.(num I64_num) @@ fun local ->
+          ( local Stack.i64 @@ fun local ->
             end_frame @@ fun _self x ->
             let* _ = local <-- I64.div x (I64.v 2L) in
             let* v = ~*local in
@@ -234,7 +234,7 @@ let test_array_arg () =
     Run.run
       ~fname:"array_arg"
       Run.(array_raw i64 @-> returning i64)
-      ( local Stack.(num I64_num) @@ fun acc ->
+      ( local Stack.i64 @@ fun acc ->
         end_frame @@ fun _self x ->
         let* _ = acc <-- I64.zero in
         let* _ = for_loop 0L 4L (fun i -> acc <-- I64.add ~*acc x.%[i]) in
@@ -248,7 +248,7 @@ let test_cst_array_arg () =
     Run.run
       ~fname:"cst_array_arg"
       Run.(array 5 i64 @-> returning i64)
-      ( local Stack.(num I64_num) @@ fun acc ->
+      ( local Stack.i64 @@ fun acc ->
         end_frame @@ fun _self x ->
         let* _ = acc <-- I64.zero in
         let* _ = for_loop 0L 4L (fun i -> acc <-- I64.add ~*acc x.%[i]) in
@@ -331,7 +331,7 @@ let test_alloca_fixed_size_array () =
     Run.run
       Run.(unit @-> returning bool)
       ( local Stack.(arr Types.(arr_cst i64 3L) (I64.v 2L)) @@ fun arr ->
-        local Stack.(num I64_num) @@ fun acc ->
+        local Stack.i64 @@ fun acc ->
         end_frame @@ fun _self _ ->
         let* arr0 = arr.%[I64.zero] in
         let* arr1 = arr.%[I64.one] in
@@ -521,7 +521,7 @@ let test_set_cst_arr () =
       (let*:: arr_cst = Stack.(arr_cst Types.i64 2L) in
        let*:: arr_cst_arr = Stack.(arr Types.(arr_cst i64 2L) (I64.v 3L)) in
        let*:: arr_cst_arr_cst = Stack.(arr_cst Types.(arr_cst i64 2L) 3L) in
-       let*:: acc = Stack.(num I64_num) in
+       let*:: acc = Stack.i64 in
        end_frame @@ fun _self _ ->
        let* _ = for_loop 0L 1L (fun i -> arr_cst.%[i] <- I64.(add i (v 42L))) in
        let* _ =

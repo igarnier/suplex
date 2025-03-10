@@ -26,16 +26,24 @@ type 'a ptr = Ptr
     array has a statically known size or not. *)
 type (!'a, 'c) arr = Arr
 
+type ('a, 'sz) vec = Vector
+
 type 'a record = Record
 
-(** ['a numerical] is the type of all {b suplex} numerical types. *)
+(** ['a base_numerical] is the type of all base {b suplex} numerical types. *)
+type 'a base_numerical =
+  | I64_num : i64 base_numerical
+  | I32_num : i32 base_numerical
+  | I16_num : i16 base_numerical
+  | I8_num : i8 base_numerical
+  | F64_num : f64 base_numerical
+  | F32_num : f32 base_numerical
+
 type 'a numerical =
-  | I64_num : i64 numerical
-  | I32_num : i32 numerical
-  | I16_num : i16 numerical
-  | I8_num : i8 numerical
-  | F64_num : f64 numerical
-  | F32_num : f32 numerical
+  | Base_num : 'a base_numerical -> 'a numerical
+  | Vec_num :
+      { base : 'a base_numerical; numel : 'sz Size.t }
+      -> ('a, 'sz) vec numerical
 
 (** {2 Relationship between numerical types and OCaml values *)
 
@@ -47,9 +55,9 @@ type (_, _) num_rel =
   | F64_rel : (f64, float) num_rel
   | F32_rel : (f32, float) num_rel
 
-(** Classifies numerical types into floating-point kind [`fp] or integer kind
-    [`int]. *)
-let numerical_kind : type a. a numerical -> [ `fp | `int ] =
+(** Classifies base numerical types into floating-point kind [`fp] or integer
+    kind [`int]. *)
+let base_numerical_kind : type a. a base_numerical -> [ `fp | `int ] =
  fun n ->
   match n with
   | I64_num -> `int
@@ -58,6 +66,14 @@ let numerical_kind : type a. a numerical -> [ `fp | `int ] =
   | I8_num -> `int
   | F32_num -> `fp
   | F64_num -> `fp
+
+(** Classifies base numerical types into floating-point kind [`fp] or integer
+    kind [`int]. *)
+let numerical_kind : type a. a numerical -> [ `fp | `int ] =
+ fun n ->
+  match n with
+  | Base_num n -> base_numerical_kind n
+  | Vec_num { base; _ } -> base_numerical_kind base
 
 (** ['a typ] is the type of {b suplex} types. *)
 type 'a typ =
@@ -172,10 +188,14 @@ and _ expr =
   | Trunc : 'a numerical * 'b numerical * 'a expr -> 'b expr
   | SExt : 'a numerical * 'b numerical * 'a expr -> 'b expr
   | ZExt : 'a numerical * 'b numerical * 'a expr -> 'b expr
-  | ToF32 : 'a numerical * 'a expr -> f32 expr
-  | ToF64 : 'a numerical * 'a expr -> f64 expr
-  | OfF32 : 'a numerical * f32 expr -> 'a expr
-  | OfF64 : 'a numerical * f64 expr -> 'a expr
+  | ToF32 : 'a base_numerical * 'a expr -> f32 expr
+  | ToF64 : 'a base_numerical * 'a expr -> f64 expr
+  | OfF32 : 'a base_numerical * f32 expr -> 'a expr
+  | OfF64 : 'a base_numerical * f64 expr -> 'a expr
+  | VecToF32 : 'a base_numerical * ('a, 'sz) vec expr -> (f32, 'sz) vec expr
+  | VecToF64 : 'a base_numerical * ('a, 'sz) vec expr -> (f64, 'sz) vec expr
+  | VecOfF32 : 'a base_numerical * (f32, 'sz) vec expr -> ('a, 'sz) vec expr
+  | VecOfF64 : 'a base_numerical * (f64, 'sz) vec expr -> ('a, 'sz) vec expr
 
 and 'a typed_llvm = { value : Llvm.llvalue; ty : 'a typ }
 
@@ -230,17 +250,19 @@ module Stack = struct
 
   let num n = SV_num n
 
-  let i64 = num I64_num
+  let base_num n = SV_num (Base_num n)
 
-  let i32 = num I32_num
+  let i64 = base_num I64_num
 
-  let i16 = num I16_num
+  let i32 = base_num I32_num
 
-  let i8 = num I8_num
+  let i16 = base_num I16_num
 
-  let f64 = num F64_num
+  let i8 = base_num I8_num
 
-  let f32 = num F32_num
+  let f64 = base_num F64_num
+
+  let f32 = base_num F32_num
 
   let ptr ty = SV_ptr ty
 

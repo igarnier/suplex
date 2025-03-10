@@ -2,6 +2,7 @@ module Vec = Vec
 module Types = Types
 module Syntax = Syntax
 module Compile = Compile
+module Size = Size
 open Syntax
 
 type i64 = Syntax.i64 = I64
@@ -16,13 +17,21 @@ type f32 = Syntax.f32 = F32
 
 type f64 = Syntax.f64 = F64
 
+type ('a, 'sz) vec = ('a, 'sz) Syntax.vec = Vector
+
+type 'a base_numerical = 'a Syntax.base_numerical =
+  | I64_num : i64 base_numerical
+  | I32_num : i32 base_numerical
+  | I16_num : i16 base_numerical
+  | I8_num : i8 base_numerical
+  | F64_num : f64 base_numerical
+  | F32_num : f32 base_numerical
+
 type 'a numerical = 'a Syntax.numerical =
-  | I64_num : i64 numerical
-  | I32_num : i32 numerical
-  | I16_num : i16 numerical
-  | I8_num : i8 numerical
-  | F64_num : f64 numerical
-  | F32_num : f32 numerical
+  | Base_num : 'a base_numerical -> 'a numerical
+  | Vec_num :
+      { base : 'a base_numerical; numel : 'sz Size.t }
+      -> ('a, 'sz) vec numerical
 
 type 'a typ = 'a Syntax.typ
 
@@ -297,8 +306,8 @@ let free ptr = Free ptr
 
 let free_array arr = Free_array arr
 
-let can_be_truncated : type a b.
-    a numerical -> b numerical -> (unit, string) Result.t =
+let base_can_be_truncated : type a b.
+    a base_numerical -> b base_numerical -> (unit, string) Result.t =
  fun n1 n2 ->
   match (n1, n2) with
   | (I64_num, I32_num)
@@ -308,6 +317,22 @@ let can_be_truncated : type a b.
   | (I32_num, I8_num)
   | (I16_num, I8_num) ->
       Ok ()
+  | _ ->
+      Format.kasprintf
+        Result.error
+        "Cannot truncate %a to %a"
+        Types.pp_base_numerical
+        n1
+        Types.pp_base_numerical
+        n2
+
+let can_be_truncated : type a b.
+    a numerical -> b numerical -> (unit, string) Result.t =
+ fun n1 n2 ->
+  match (n1, n2) with
+  | (Base_num n1, Base_num n2) -> base_can_be_truncated n1 n2
+  | (Vec_num { base = n1; _ }, Vec_num { base = n2; _ }) ->
+      base_can_be_truncated n1 n2
   | _ ->
       Format.kasprintf
         Result.error
@@ -322,8 +347,8 @@ let trunc src dst v =
   | Error e -> failwith e
   | Ok () -> Trunc (src, dst, v)
 
-let can_be_extended : type a b.
-    a numerical -> b numerical -> (unit, string) Result.t =
+let base_can_be_extended : type a b.
+    a base_numerical -> b base_numerical -> (unit, string) Result.t =
  fun n1 n2 ->
   match (n1, n2) with
   | (I8_num, I16_num)
@@ -333,6 +358,22 @@ let can_be_extended : type a b.
   | (I16_num, I64_num)
   | (I32_num, I64_num) ->
       Ok ()
+  | _ ->
+      Format.kasprintf
+        Result.error
+        "Cannot extend %a to %a"
+        Types.pp_base_numerical
+        n1
+        Types.pp_base_numerical
+        n2
+
+let can_be_extended : type a b.
+    a numerical -> b numerical -> (unit, string) Result.t =
+ fun n1 n2 ->
+  match (n1, n2) with
+  | (Base_num n1, Base_num n2) -> base_can_be_extended n1 n2
+  | (Vec_num { base = n1; _ }, Vec_num { base = n2; _ }) ->
+      base_can_be_extended n1 n2
   | _ ->
       Format.kasprintf
         Result.error

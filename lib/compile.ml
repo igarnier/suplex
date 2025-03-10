@@ -6,12 +6,20 @@ let sf = Printf.sprintf
 let numerical_of_num_rel : type s o. (s, o) num_rel -> s numerical =
  fun rel ->
   match rel with
-  | I64_rel -> I64_num
-  | I32_rel -> I32_num
-  | I16_rel -> I16_num
-  | I8_rel -> I8_num
-  | F64_rel -> F64_num
-  | F32_rel -> F32_num
+  | I64_rel -> Base_num I64_num
+  | I32_rel -> Base_num I32_num
+  | I16_rel -> Base_num I16_num
+  | I8_rel -> Base_num I8_num
+  | F64_rel -> Base_num F64_num
+  | F32_rel -> Base_num F32_num
+
+let cast_base_vector_type : type a b sz.
+    (a, sz) vec numerical -> b base_numerical -> (b, sz) vec numerical =
+ fun (numty : (a, sz) vec numerical) (base : b base_numerical) ->
+  match numty with Vec_num { base = _; numel } -> Vec_num { base; numel }
+
+let numerical_of_type : type a sz. (a, sz) vec typ -> (a, sz) vec numerical =
+ fun (typ : (a, sz) vec typ) -> match typ with TNum numty -> numty
 
 module LLVM_type = struct
   type t = Llvm.lltype
@@ -36,7 +44,7 @@ module LLVM_type = struct
 
   let struct_table = Hashtbl.create 11
 
-  let raw_llty_of_numerical (type a) (typ : a numerical) context =
+  let raw_llty_of_base_numerical (type a) (typ : a base_numerical) context =
     match typ with
     | I64_num -> int64_t context
     | I32_num -> int32_t context
@@ -44,6 +52,13 @@ module LLVM_type = struct
     | I8_num -> int8_t context
     | F32_num -> float32_t context
     | F64_num -> float64_t context
+
+  let raw_llty_of_numerical (type a) (typ : a numerical) context =
+    match typ with
+    | Base_num b -> raw_llty_of_base_numerical b context
+    | Vec_num { base; numel } ->
+        let base = raw_llty_of_base_numerical base context in
+        Llvm.vector_type base (Size.to_int numel)
 
   (* Convert type to Llvm repr *)
   let rec storage_of_type : type a. Llvm.llcontext -> a typ -> t =
@@ -115,7 +130,7 @@ let field_name : type a u. (a, u record) field -> string =
 
 let is_floating_point : type a. a numerical -> bool =
  fun (type a) (typ : a numerical) ->
-  match typ with F32_num | F64_num -> true | _ -> false
+  match numerical_kind typ with `fp -> true | `int -> false
 
 module SMap = Map.Make (String)
 
@@ -520,18 +535,18 @@ let rec compile : type a.
       | TPtr _ ->
           let _ = Llvm.build_store v.value ptr.value (get_builder state) in
           return_unit state
-      | TNum _ -> .)
+      | TNum (Base_num _) -> .)
   | Load ptr -> (
       let* ptr = compile env state ptr in
       match ptr.ty with
+      | TNum (Base_num _) -> .
       | TPtr typ -> (
           match typ with
           | TArr_cst _ | TRecord _ -> with_type typ ptr.value
           | _ ->
               let llty = LLVM_type.storage_of_type state.llvm_context typ in
               with_type typ
-              @@ Llvm.build_load llty ptr.value "load_tmp" (get_builder state))
-      | _ -> .)
+              @@ Llvm.build_load llty ptr.value "load_tmp" (get_builder state)))
   | NullPtr ty ->
       let ptrty = Types.ptr ty in
       let llty = LLVM_type.storage_of_type state.llvm_context ptrty in
@@ -555,9 +570,12 @@ let rec compile : type a.
       match addressable with
       | Addressable_array -> (
           match e.ty with
+          | TNum (Base_num _) -> .
           | TArr_cst (_, _) -> with_type (Types.ptr e.ty) e.value)
       | Addressable_record -> (
-          match e.ty with TRecord _ -> with_type (Types.ptr e.ty) e.value))
+          match e.ty with
+          | TNum (Base_num _) -> .
+          | TRecord _ -> with_type (Types.ptr e.ty) e.value))
   | Get (arr, i) ->
       get_generic env state arr i (fun addr elt_ty ->
           match elt_ty with
@@ -578,6 +596,7 @@ let rec compile : type a.
       let* i = compile env state i in
       let* v = compile env state v in
       match arr.ty with
+      | TNum (Base_num _) -> .
       | TArr_cst (elt_ty, _) | TArr_unk elt_ty -> (
           let llelt_ty = LLVM_type.storage_of_type state.llvm_context elt_ty in
           let elt_addr =
@@ -602,20 +621,22 @@ let rec compile : type a.
           | TRecord _ -> perform_copy "set_load_record"
           | _ ->
               ignore @@ Llvm.build_store v.value elt_addr (get_builder state) ;
-              return_unit state)
-      | TNum _ -> .)
+              return_unit state))
   | GetField (field, record_ptr) -> (
       let* record_ptr = compile env state record_ptr in
       match record_ptr.ty with
+      | TNum (Base_num _) -> .
       | TRecord _ as recty -> get_field state field recty record_ptr)
   | GetFieldAddr (field, record_ptr) -> (
       let* record_ptr = compile env state record_ptr in
       match record_ptr.ty with
+      | TNum (Base_num _) -> .
       | TRecord _ as recty -> get_field_addr state field recty record_ptr)
   | SetField (field, record_ptr, v) -> (
       let* record_ptr = compile env state record_ptr in
       let* v = compile env state v in
       match record_ptr.ty with
+      | TNum (Base_num _) -> .
       | TRecord _ as recty -> set_field state field recty record_ptr v)
   | Cond (cond, ift, iff) ->
       let* cond = compile env state cond in
@@ -977,6 +998,7 @@ let rec compile : type a.
   | Call (fn, args) -> (
       let* f = compile env state fn in
       match f.ty with
+      | TNum (Base_num _) -> .
       | TFn fn ->
           let rec loop : type s ret.
               s fn ->
@@ -1072,7 +1094,9 @@ let rec compile : type a.
       with_type (TNum n2) ext
   | ToF32 (n, v) -> (
       let* v = compile env state v in
-      let target = LLVM_type.of_numerical state.llvm_context F32_num in
+      let target =
+        LLVM_type.of_numerical state.llvm_context (Base_num F32_num)
+      in
       match n with
       | I64_num | I32_num | I16_num | I8_num ->
           let fp =
@@ -1087,7 +1111,9 @@ let rec compile : type a.
           with_type Types.f32 fp)
   | ToF64 (n, v) -> (
       let* v = compile env state v in
-      let target = LLVM_type.of_numerical state.llvm_context F32_num in
+      let target =
+        LLVM_type.of_numerical state.llvm_context (Base_num F32_num)
+      in
       match n with
       | I64_num | I32_num | I16_num | I8_num ->
           Llvm.build_sitofp v.value target "si_to_f64" (get_builder state)
@@ -1097,27 +1123,99 @@ let rec compile : type a.
           Llvm.build_fpext v.value target "f32_to_f64" (get_builder state)
           |> with_type Types.f64)
   | OfF32 (n, v) -> (
-      let target = LLVM_type.of_numerical state.llvm_context n in
+      let target = LLVM_type.of_numerical state.llvm_context (Base_num n) in
       let* v = compile env state v in
       match n with
       | I64_num | I32_num | I16_num | I8_num ->
           Llvm.build_fptosi v.value target "f32_to_si" (get_builder state)
-          |> with_type (TNum n)
+          |> with_type (TNum (Base_num n))
       | F32_num -> Some v
       | F64_num ->
           Llvm.build_fpext v.value target "f32_to_f64" (get_builder state)
           |> with_type Types.f64)
   | OfF64 (n, v) -> (
-      let target = LLVM_type.of_numerical state.llvm_context n in
+      let target = LLVM_type.of_numerical state.llvm_context (Base_num n) in
       let* v = compile env state v in
       match n with
       | I64_num | I32_num | I16_num | I8_num ->
           Llvm.build_fptosi v.value target "f64_to_si" (get_builder state)
-          |> with_type (TNum n)
+          |> with_type (TNum (Base_num n))
       | F64_num -> Some v
       | F32_num ->
           Llvm.build_fptrunc v.value target "f64_to_f32" (get_builder state)
-          |> with_type (TNum n))
+          |> with_type (TNum (Base_num n)))
+  | VecToF32 (n, v) -> (
+      let* v = compile env state v in
+      let target_num_ty =
+        cast_base_vector_type (numerical_of_type v.ty) F32_num
+      in
+      let target_ty = TNum target_num_ty in
+      let target = LLVM_type.of_numerical state.llvm_context target_num_ty in
+      match n with
+      | I64_num | I32_num | I16_num | I8_num ->
+          let fp =
+            Llvm.build_sitofp v.value target "vec_si_to_f32" (get_builder state)
+          in
+          with_type target_ty fp
+      | F32_num -> Some v
+      | F64_num ->
+          let fp =
+            Llvm.build_fptrunc
+              v.value
+              target
+              "vec_f64_to_f32"
+              (get_builder state)
+          in
+          with_type target_ty fp)
+  | VecToF64 (n, v) -> (
+      let* v = compile env state v in
+      let target_num_ty =
+        cast_base_vector_type (numerical_of_type v.ty) F64_num
+      in
+      let target_ty = TNum target_num_ty in
+      let target = LLVM_type.of_numerical state.llvm_context target_num_ty in
+      match n with
+      | I64_num | I32_num | I16_num | I8_num ->
+          let fp =
+            Llvm.build_sitofp v.value target "vec_si_to_f32" (get_builder state)
+          in
+          with_type target_ty fp
+      | F64_num -> Some v
+      | F32_num ->
+          let fp =
+            Llvm.build_fptrunc
+              v.value
+              target
+              "vec_f64_to_f32"
+              (get_builder state)
+          in
+          with_type target_ty fp)
+  | VecOfF32 (n, v) -> (
+      let target = LLVM_type.of_numerical state.llvm_context (Base_num n) in
+      let* v = compile env state v in
+      let target_num_ty = cast_base_vector_type (numerical_of_type v.ty) n in
+      let target_ty = TNum target_num_ty in
+      match n with
+      | I64_num | I32_num | I16_num | I8_num ->
+          Llvm.build_fptosi v.value target "f32_to_si" (get_builder state)
+          |> with_type target_ty
+      | F32_num -> Some v
+      | F64_num ->
+          Llvm.build_fpext v.value target "f32_to_f64" (get_builder state)
+          |> with_type target_ty)
+  | VecOfF64 (n, v) -> (
+      let target = LLVM_type.of_numerical state.llvm_context (Base_num n) in
+      let* v = compile env state v in
+      let target_num_ty = cast_base_vector_type (numerical_of_type v.ty) n in
+      let target_ty = TNum target_num_ty in
+      match n with
+      | I64_num | I32_num | I16_num | I8_num ->
+          Llvm.build_fptosi v.value target "f64_to_si" (get_builder state)
+          |> with_type target_ty
+      | F64_num -> Some v
+      | F32_num ->
+          Llvm.build_fptrunc v.value target "f64_to_f32" (get_builder state)
+          |> with_type target_ty)
 
 and get_generic : type a b c.
     environment ->
@@ -1130,7 +1228,9 @@ and get_generic : type a b c.
   let* arr = compile env state arr in
   let* i = compile env state i in
   match (arr.ty, i.ty) with
-  | (TArr_unk elt_ty, TNum I64_num) | (TArr_cst (elt_ty, _), TNum I64_num) ->
+  | (TNum (Base_num _), _) -> .
+  | (TArr_unk elt_ty, TNum (Base_num I64_num))
+  | (TArr_cst (elt_ty, _), TNum (Base_num I64_num)) ->
       let llelt_ty = LLVM_type.storage_of_type state.llvm_context elt_ty in
       let addr =
         Llvm.build_gep

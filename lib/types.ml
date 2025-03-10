@@ -10,19 +10,9 @@ let field_name : type a. (a, _) field -> string = function
 let field_type : type a. (a, _) field -> a typ = function
   | Field { ty; _ } -> ty
 
-let classify_numerical : type a. a numerical -> [ `fp | `int ] =
- fun n ->
-  match n with
-  | I64_num -> `int
-  | I32_num -> `int
-  | I16_num -> `int
-  | I8_num -> `int
-  | F64_num -> `fp
-  | F32_num -> `fp
-
 (** Pretty-printing numerical types. *)
-let pp_numerical : type a. Format.formatter -> a numerical -> unit =
- fun (type a) fmtr (n : a numerical) ->
+let pp_base_numerical : type a. Format.formatter -> a base_numerical -> unit =
+ fun fmtr (n : a base_numerical) ->
   let open Format in
   match n with
   | I64_num -> fprintf fmtr "i64"
@@ -31,6 +21,14 @@ let pp_numerical : type a. Format.formatter -> a numerical -> unit =
   | I8_num -> fprintf fmtr "i8"
   | F32_num -> fprintf fmtr "f32"
   | F64_num -> fprintf fmtr "f64"
+
+let pp_numerical : type a. Format.formatter -> a numerical -> unit =
+ fun fmtr (n : a numerical) ->
+  let open Format in
+  match n with
+  | Base_num n -> pp_base_numerical fmtr n
+  | Vec_num { base; numel } ->
+      fprintf fmtr "<%a x %d>" pp_base_numerical base (Size.to_int numel)
 
 let rec pp_typ : type a. int list -> Format.formatter -> a typ -> unit =
  fun (type a) visited fmtr (typ : a typ) ->
@@ -78,8 +76,8 @@ let pp_typ fmtr typ = pp_typ [] fmtr typ
 let pp_field : type a. Format.formatter -> (a, _) field -> unit =
  fun fmtr (Field { name; ty }) -> Format.fprintf fmtr "%s: %a" name pp_typ ty
 
-let numerical_eq : type a b. a numerical -> b numerical -> (a, b) Type.eq option
-    =
+let base_numerical_eq : type a b.
+    a base_numerical -> b base_numerical -> (a, b) Type.eq option =
  fun n1 n2 ->
   match (n1, n2) with
   | (I64_num, I64_num) -> Some Equal
@@ -88,6 +86,23 @@ let numerical_eq : type a b. a numerical -> b numerical -> (a, b) Type.eq option
   | (I8_num, I8_num) -> Some Equal
   | (F64_num, F64_num) -> Some Equal
   | (F32_num, F32_num) -> Some Equal
+  | _ -> None
+
+let numerical_eq : type a b. a numerical -> b numerical -> (a, b) Type.eq option
+    =
+ fun n1 n2 ->
+  match (n1, n2) with
+  | (Base_num n1, Base_num n2) -> (
+      match base_numerical_eq n1 n2 with
+      | None -> None
+      | Some Type.Equal -> Some Type.Equal)
+  | (Vec_num { base = b1; numel = n1 }, Vec_num { base = b2; numel = n2 }) -> (
+      match base_numerical_eq b1 b2 with
+      | None -> None
+      | Some Type.Equal -> (
+          match Size.equal n1 n2 with
+          | None -> None
+          | Some Type.Equal -> Some Type.Equal))
   | _ -> None
 
 let rec type_eq : type a b. a typ -> b typ -> bool =
@@ -158,17 +173,21 @@ let unit = TUnit
 
 let bool = TBool
 
-let i64 = TNum I64_num
+let base_num n = TNum (Base_num n)
 
-let i32 = TNum I32_num
+let i64 = base_num I64_num
 
-let i16 = TNum I16_num
+let i32 = base_num I32_num
 
-let i8 = TNum I8_num
+let i16 = base_num I16_num
 
-let f32 = TNum F32_num
+let i8 = base_num I8_num
 
-let f64 = TNum F64_num
+let f32 = base_num F32_num
+
+let f64 = base_num F64_num
+
+let vec base numel = TNum (Vec_num { base; numel })
 
 let ptr x = TPtr x
 

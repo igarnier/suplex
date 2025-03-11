@@ -1109,14 +1109,13 @@ let rec compile : type a.
       let* arr = compile env state arr in
       let _ = Llvm.build_free arr.value (get_builder state) in
       return_unit state
-  | Trunc (_n1, n2, v) -> begin
+  | Trunc (_n1, n2, v) ->
       let target = LLVM_type.of_numerical state.llvm_context n2 in
       let* v = compile env state v in
       let truncated =
         Llvm.build_trunc v.value target "trunc" (get_builder state)
       in
       with_type (TNum n2) truncated
-    end
   | ZExt (_n1, n2, v) ->
       let target = LLVM_type.of_numerical state.llvm_context n2 in
       let* v = compile env state v in
@@ -1125,7 +1124,7 @@ let rec compile : type a.
   | SExt (_n1, n2, v) ->
       let target = LLVM_type.of_numerical state.llvm_context n2 in
       let* v = compile env state v in
-      let ext = Llvm.build_zext v.value target "sext" (get_builder state) in
+      let ext = Llvm.build_sext v.value target "sext" (get_builder state) in
       with_type (TNum n2) ext
   | ToF32 (n, v) -> (
       let* v = compile env state v in
@@ -1147,7 +1146,7 @@ let rec compile : type a.
   | ToF64 (n, v) -> (
       let* v = compile env state v in
       let target =
-        LLVM_type.of_numerical state.llvm_context (Base_num F32_num)
+        LLVM_type.of_numerical state.llvm_context (Base_num F64_num)
       in
       match n with
       | I64_num | I32_num | I16_num | I8_num ->

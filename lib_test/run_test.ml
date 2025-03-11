@@ -905,6 +905,103 @@ let test_global_array () =
   in
   Alcotest.(check (float 0.01)) "test_global_array" 10. @@ f ()
 
+let test_trunc_64_to_32 () =
+  let f =
+    Run.run
+      ~debug:true
+      Run.(i64 @-> returning i32)
+      (end_frame @@ fun _self x -> trunc I64.n I32.n x)
+  in
+  Alcotest.(check int32) "trunc" 42l (f 42L)
+
+let test_trunc_64_to_8 () =
+  let f =
+    Run.run
+      Run.(i64 @-> returning i8)
+      (end_frame @@ fun _self x -> trunc I64.n I8.n x)
+  in
+  Alcotest.(check int) "trunc" ~-128 (f 128L)
+
+let test_sext () =
+  let f =
+    Run.run
+      Run.(i8 @-> returning i32)
+      (end_frame @@ fun _self x -> sext I8.n I32.n x)
+  in
+  Alcotest.(check int32) "sext" 0xFFFFFFFFl (f 0xFF)
+
+let test_zext () =
+  let f =
+    Run.run
+      Run.(i8 @-> returning i64)
+      (end_frame @@ fun _self x -> zext I8.n I64.n x)
+  in
+  Alcotest.(check int64) "zext" 128L (f 128)
+
+let test_si_to_f32 () =
+  let f =
+    Run.run
+      Run.(i8 @-> returning f32)
+      (end_frame @@ fun _self x -> to_f32 i8_num x)
+  in
+  Alcotest.(check (float 0.0)) "cast_to_f32" 127.0 (f 127)
+
+let test_f64_to_f32 () =
+  let f =
+    Run.run
+      Run.(f64 @-> returning f32)
+      (end_frame @@ fun _self x -> to_f32 f64_num x)
+  in
+  Alcotest.(check (float 0.0)) "cast_to_f32" 127.0 (f 127.0)
+
+let test_si_to_f64 () =
+  let f =
+    Run.run
+      Run.(i8 @-> returning f64)
+      (end_frame @@ fun _self x -> to_f64 i8_num x)
+  in
+  Alcotest.(check (float 0.0)) "cast_to_f64" 127.0 (f 127)
+
+let test_f32_to_f64 () =
+  let f =
+    Run.run
+      Run.(f32 @-> returning f64)
+      (end_frame @@ fun _self x -> to_f64 f32_num x)
+  in
+  Alcotest.(check (float 0.0)) "cast_to_f64" 127.0 (f 127.0)
+
+let test_si_of_f32 () =
+  let f =
+    Run.run
+      Run.(f32 @-> returning i8)
+      (end_frame @@ fun _self x -> of_f32 i8_num x)
+  in
+  Alcotest.(check int) "cast_si_of_f32" 127 (f 127.0)
+
+let test_si_of_f64 () =
+  let f =
+    Run.run
+      Run.(f64 @-> returning i8)
+      (end_frame @@ fun _self x -> of_f64 i8_num x)
+  in
+  Alcotest.(check int) "cast_si_of_f64" 127 (f 127.0)
+
+let test_f64_of_f32 () =
+  let f =
+    Run.run
+      Run.(f32 @-> returning f64)
+      (end_frame @@ fun _self x -> of_f32 f64_num x)
+  in
+  Alcotest.(check (float 0.0)) "cast_f64_of_f32" 127.0 (f 127.0)
+
+let test_f32_of_f64 () =
+  let f =
+    Run.run
+      Run.(f64 @-> returning f32)
+      (end_frame @@ fun _self x -> of_f64 f32_num x)
+  in
+  Alcotest.(check (float 0.0)) "cast_f64_of_f32" 127.0 (f 127.0)
+
 let () =
   let open Alcotest in
   run
@@ -967,4 +1064,16 @@ let () =
           test_case "test_malloc" `Quick test_malloc;
           test_case "test_malloc_array" `Quick test_malloc_array;
           test_case "test_opaque_strct" `Quick test_opaque_mallocd_strct;
-          test_case "test_global_array" `Quick test_global_array ] ) ]
+          test_case "test_global_array" `Quick test_global_array;
+          test_case "test_trunc_i64_i32" `Quick test_trunc_64_to_32;
+          test_case "test_trunc_i64_i8" `Quick test_trunc_64_to_8;
+          test_case "test_sext" `Quick test_sext;
+          test_case "test_zext" `Quick test_zext;
+          test_case "test_si_to_f32" `Quick test_si_to_f32;
+          test_case "test_f64_to_f32" `Quick test_f64_to_f32;
+          test_case "test_si_to_f64" `Quick test_si_to_f64;
+          test_case "test_f32_to_f64" `Quick test_f32_to_f64;
+          test_case "test_si_of_f32" `Quick test_si_of_f32;
+          test_case "test_si_of_f64" `Quick test_si_of_f64;
+          test_case "test_f64_of_f32" `Quick test_f64_of_f32;
+          test_case "test_f32_of_f64" `Quick test_f32_of_f64 ] ) ]

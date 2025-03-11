@@ -168,8 +168,11 @@ module type Numerical = sig
   (** [v] is the OCaml representation of constant values. *)
   type v
 
-  (** Witness that [t] is a numerical type represented by [v]. *)
+  (** Witness that [t] is related to OCaml constants of type [v]. *)
   val rel : (t, v) num_rel
+
+  (** Witness that [t] is a numerical type. *)
+  val n : t numerical
 
   (** [v c] is a constant equal to [c]. *)
   val v : v -> t expr
@@ -238,6 +241,22 @@ module F64_ba : BA with type elt = f64
 
 module F32_ba : BA with type elt = f32
 
+val i64_num : I64.t base_numerical
+
+val i32_num : I32.t base_numerical
+
+val i16_num : I16.t base_numerical
+
+val i8_num : I8.t base_numerical
+
+val f64_num : F64.t base_numerical
+
+val f32_num : F32.t base_numerical
+
+val scalar : 'a base_numerical -> 'a numerical
+
+val vector : 'a base_numerical -> 'sz Size.t -> ('a, 'sz) vec numerical
+
 (** Sequencing operator. *)
 val ( let* ) : 'a expr -> ('a expr -> 'b expr) -> 'b expr
 
@@ -256,6 +275,13 @@ val const_array :
   (module Numerical with type t = 't and type v = 'v) ->
   'v array ->
   ('t, [ `cst ]) arr expr
+
+(** [vec numty sz arr] is a constant vector with values specified by [arr] *)
+val vec :
+  (module Numerical with type t = 't and type v = 'v) ->
+  'a Size.t ->
+  'v array ->
+  ('t, 'a) vec expr
 
 (** [string ?strz str] constructs a constant string with contents [str]. If [z]
     is set to false, the resulting string is not zero-terminated. *)
@@ -379,27 +405,44 @@ val free : 'a ptr expr -> unit expr
 (** [free_array arr] frees the memory block pointed to by [arr] *)
 val free_array : ('a, [ `unk ]) arr expr -> unit expr
 
-(** [trunc n1 n2] constructs a truncating cast from [n1] to [n2]. Returns [None]
-    if a truncation doesn't exist, e.g. if [n1] is smaller than [n2]. *)
+(** [trunc n1 n2] constructs a integer truncating cast from [n1] to [n2].
+    Returns [None] if a truncation doesn't exist, e.g. if [n1] is smaller than
+    [n2]. *)
 val trunc : 'a numerical -> 'b numerical -> 'a expr -> 'b expr
 
-(** [zext n1 n2] constructs a sign-extending cast from [n1] to [n2]. *)
+(** [sext n1 n2] constructs a sign-extending cast from [n1] to [n2]. *)
 val sext : 'a numerical -> 'b numerical -> 'a expr -> 'b expr
 
 (** [zext n1 n2] constructs a zero-extending cast from [n1] to [n2]. *)
 val zext : 'a numerical -> 'b numerical -> 'a expr -> 'b expr
 
-(** [to_f32 n] constructs a cast from [n] to [f32]. *)
+(** [to_f32 n e] constructs a cast of the expression [e] from [n] to [f32]. *)
 val to_f32 : 'a base_numerical -> 'a expr -> f32 expr
 
-(** [to_f64 n] constructs a cast from [n] to [f64]. *)
+(** [to_f64 n e] constructs a cast of the expression [e] from [n] to [f64]. *)
 val to_f64 : 'a base_numerical -> 'a expr -> f64 expr
 
-(** [of_f32 n] constructs a cast from [f32] to [n]. *)
+(** [of_f32 n e] constructs a cast of the expression [e] from [f32] to [n]. *)
 val of_f32 : 'a base_numerical -> f32 expr -> 'a expr
 
-(** [of_f64 n] constructs a cast from [f64] to [n]. *)
+(** [of_f64 n e] constructs a cast of the expression [e] from [f64] to [n]. *)
 val of_f64 : 'a base_numerical -> f64 expr -> 'a expr
+
+(** [vec_to_f32 n e] constructs a cast of the expression [e] from [n] to [f32].
+*)
+val vec_to_f32 : 'a base_numerical -> ('a, 'sz) vec expr -> (f32, 'sz) vec expr
+
+(** [vec_to_f64 n e] constructs a cast of the expression [e] from [n] to [f64].
+*)
+val vec_to_f64 : 'a base_numerical -> ('a, 'sz) vec expr -> (f64, 'sz) vec expr
+
+(** [vec_of_f32 n e] constructs a cast of the expression [e] from [f32] to [n].
+*)
+val vec_of_f32 : 'a base_numerical -> (f32, 'sz) vec expr -> ('a, 'sz) vec expr
+
+(** [vec_of_f64 n e] constructs a cast of the expression [e] from [f64] to [n].
+*)
+val vec_of_f64 : 'a base_numerical -> (f64, 'sz) vec expr -> ('a, 'sz) vec expr
 
 (** [block stmts] is a block of statements [stmts]. *)
 val block : unit expr list -> unit expr

@@ -67,8 +67,11 @@ module type Numerical = sig
   (** [v] is the type of constant values. *)
   type v
 
-  (** Witness that [t] is a numerical type. *)
+  (** Witness that [t] is related to OCaml constants of type [v]. *)
   val rel : (t, v) Syntax.num_rel
+
+  (** Witness that [t] is a numerical type. *)
+  val n : t numerical
 
   (** [v c] is a constant equal to [c]. *)
   val v : v -> t expr
@@ -229,6 +232,22 @@ module I8_ba = Run.I8_ba
 module F64_ba = Run.F64_ba
 module F32_ba = Run.F32_ba
 
+let i64_num = I64_num
+
+let i32_num = I32_num
+
+let i16_num = I16_num
+
+let i8_num = I8_num
+
+let f64_num = F64_num
+
+let f32_num = F32_num
+
+let scalar s = Base_num s
+
+let vector base numel = Vec_num { base; numel }
+
 let ( let* ) m f = Let (m, f)
 
 let unit = Unit
@@ -238,8 +257,12 @@ let tt = True
 let ff = False
 
 let const_array (type t v) (module N : Numerical with type t = t and type v = v)
-    len =
-  Const_array (N.rel, len)
+    arr =
+  Const_array (N.rel, arr)
+
+let vec (type t v) (module N : Numerical with type t = t and type v = v) len arr
+    =
+  Vec (N.rel, len, arr)
 
 let string ?(strz = false) str = String { strz; str }
 
@@ -400,6 +423,14 @@ let to_f64 src v = ToF64 (src, v)
 let of_f32 trgt v = OfF32 (trgt, v)
 
 let of_f64 trgt v = OfF64 (trgt, v)
+
+let vec_to_f32 src v = VecToF32 (src, v)
+
+let vec_to_f64 src v = VecToF64 (src, v)
+
+let vec_of_f32 trgt v = VecOfF32 (trgt, v)
+
+let vec_of_f64 trgt v = VecOfF64 (trgt, v)
 
 let rec block cmds =
   match cmds with

@@ -46,7 +46,6 @@ type 'a numerical =
       -> ('a, 'sz) vec numerical
 
 (** {2 Relationship between numerical types and OCaml values *)
-
 type (_, _) num_rel =
   | I64_rel : (i64, int64) num_rel
   | I32_rel : (i32, int32) num_rel
@@ -137,7 +136,6 @@ and _ expr =
   | I8 : int -> i8 expr
   | F64 : float -> f64 expr
   | F32 : float -> f32 expr
-  | Vec : ('s, 'o) num_rel * 'sz Size.t * 'o array -> ('s, 'sz) vec expr
   | Add : 'a numerical * 'a expr * 'a expr -> 'a expr
   | Sub : 'a numerical * 'a expr * 'a expr -> 'a expr
   | Mul : 'a numerical * 'a expr * 'a expr -> 'a expr
@@ -186,6 +184,7 @@ and _ expr =
   | Free : 'a ptr expr -> unit expr
   | Free_array : ('a, [ `unk ]) arr expr -> unit expr
   | Const_array : ('s, 'o) num_rel * 'o array -> ('s, [ `cst ]) arr expr
+  | Vec : ('s, 'o) num_rel * 'sz Size.t * 'o array -> ('s, 'sz) vec expr
   | Trunc : 'a numerical * 'b numerical * 'a expr -> 'b expr
   | SExt : 'a numerical * 'b numerical * 'a expr -> 'b expr
   | ZExt : 'a numerical * 'b numerical * 'a expr -> 'b expr

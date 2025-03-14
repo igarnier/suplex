@@ -141,7 +141,6 @@ type llvm_state =
   { llvm_context : Llvm.llcontext;
     llvm_module : Llvm.llmodule;
     llvm_builder : Llvm.llbuilder Stdlib.Stack.t;
-    externals : (string, Llvm.llvalue) Hashtbl.t;
     const_strings : (string, Llvm.llvalue) Hashtbl.t
   }
 
@@ -157,7 +156,6 @@ let get_builder llvm_state = Stdlib.Stack.top llvm_state.llvm_builder
 let new_llvm_state () =
   let llvm_context = Llvm.global_context () in
   let llvm_module = Llvm.create_module llvm_context "jit" in
-  let externals = Hashtbl.create 11 in
   let const_strings = Hashtbl.create 11 in
   (* builtins *)
   let typ =
@@ -170,7 +168,6 @@ let new_llvm_state () =
   { llvm_context;
     llvm_module;
     llvm_builder = Stdlib.Stack.create ();
-    externals;
     const_strings
   }
 

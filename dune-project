@@ -6,6 +6,7 @@
 (license MIT)
 (authors "Ilias Garnier")
 (maintainers igarnier@protonmail.com)
+
 (package (name suplex)
   (synopsis "LLVM-backed typed eDSL for C-like programming in OCaml")
   (depends
@@ -14,6 +15,17 @@
     (llvm (= 17.0.6))
     (ctypes (= 0.23.0))
     (ctypes-foreign (= 0.23.0))))
+
+(package (name suplex-intrinsics)
+  (synopsis "LLVM-backed typed eDSL for C-like programming in OCaml - intrinsics")
+  (depends
+    (suplex (= :version))
+    (ocaml (>= 5.2.0))
+    (alcotest (and (>= 1.6.0) :with-test))
+    (llvm (= 17.0.6))
+    (ctypes (= 0.23.0))
+    (ctypes-foreign (= 0.23.0))))
+
 (bug_reports http://github.com/igarnier/suplex)
 (homepage http://github.com/igarnier/suplex)
 (documentation https://igarnier.github.io/suplex)

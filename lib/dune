@@ -17,7 +17,7 @@
   (libraries hmap llvm llvm.executionengine llvm.analysis llvm.all_backends llvm.target ctypes ctypes.foreign)
   (foreign_archives externals)
   (instrumentation (backend bisect_ppx))
-  (ocamlopt_flags (-g -rectypes))
+  (ocamlopt_flags (-g))
 )
 
 (documentation

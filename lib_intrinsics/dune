@@ -1,0 +1,8 @@
+(library
+  (name suplex_intrinsics)
+  (public_name suplex-intrinsics)
+  (modes native)
+  (libraries suplex)
+  (instrumentation (backend bisect_ppx))
+  (ocamlopt_flags (-g))
+)

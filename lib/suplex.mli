@@ -77,6 +77,8 @@ type 'a expr
 
 type 'a fundecl
 
+type 'a intrinsic
+
 type ('a, 'b) args
 
 type ('s, 'o) num_rel
@@ -511,6 +513,10 @@ val end_frame : 'a -> 'a stack
     [proto] and body [def]. Functions can be nested but it is a programming
     error to refer to the local variables from an outer function. *)
 val fundecl : string -> 'a fn -> ('a fn expr -> 'a) stack -> 'a fn expr
+
+(** [intrinsic name proto] defines an intrinsic function with name [name] and
+    type signature [proto]. *)
+val intrinsic : string -> 'a fn -> 'a intrinsic
 
 (** The [Run] module allows to call functions defined using this library from
     OCaml. The entrypoint is a ['a module_] which is a list of function

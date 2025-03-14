@@ -56,6 +56,8 @@ type 'a expr = 'a Syntax.expr
 
 type 'a fundecl = 'a Syntax.fundecl
 
+type 'a intrinsic = 'a Syntax.intrinsic
+
 type ('a, 'b) args = ('a, 'b) Syntax.args
 
 type ('s, 'o) num_rel = ('s, 'o) Syntax.num_rel
@@ -449,6 +451,8 @@ let ( let*:: ) = local
 let end_frame k = End_frame k
 
 let fundecl name typ body = Syntax.Fundecl (Syntax.fundecl name typ body)
+
+let intrinsic name typ = { intrinsic_name = name; intrinsic_sg = typ }
 
 module Run = struct
   open Run

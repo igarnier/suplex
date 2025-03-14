@@ -215,6 +215,8 @@ and 'a fundecl =
     body : ('a fn expr -> 'a) stack  (** Stack specification *)
   }
 
+and 'a intrinsic = { intrinsic_name : string; intrinsic_sg : 'a fn }
+
 (** {2 Descriptors for stack variables} *)
 
 and 'a stack_var =

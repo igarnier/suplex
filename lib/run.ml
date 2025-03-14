@@ -552,6 +552,8 @@ let add_fundecl name (Fn rel as fn_rel) body mdl =
   let fdecl = { name; sg; body } in
   Add_fundecl { fdecl; rel = fn_rel; mdl }
 
+let add_intrinsic intrinsic mdl = Add_intrinsic { intrinsic; mdl }
+
 let run_module : type s.
     ?debug:bool -> ?cfg:cfg -> ?state:Compile.llvm_state -> s module_ -> s =
  fun ?(debug = false)

@@ -33,7 +33,17 @@ type 'a numerical = 'a Syntax.numerical =
       { base : 'a base_numerical; numel : 'sz Size.t }
       -> ('a, 'sz) vec numerical
 
-type 'a typ = 'a Syntax.typ
+type 'a typ = 'a Syntax.typ =
+  | TUnit : unit typ
+  | TBool : bool typ
+  | TNum : 'a numerical -> 'a typ
+  | TPtr : 'a typ -> 'a ptr typ
+  | TArr_unk : 'a typ -> ('a, [ `unk ]) arr typ
+  | TArr_cst : 'a typ * int64 -> ('a, [ `cst ]) arr typ
+  | TRecord :
+      { descr : (_, 'u Vec.t, 'u Vec.t, 't record) record_desc }
+      -> 't record typ
+  | TFn : 'a fn -> 'a fn typ
 
 type 'a ptr = 'a Syntax.ptr = Ptr
 
@@ -44,7 +54,7 @@ type ('a, 'b, 'c, 'd) record_desc = ('a, 'b, 'c, 'd) Syntax.record_desc
 type ('f, 'r) field = ('f, 'r) Syntax.field =
   | Field : { name : string; ty : 'a typ } -> ('a, 't) field
 
-type ('a, 'k) arr = ('a, 'k) Syntax.arr
+type ('a, 'k) arr = ('a, 'k) Syntax.arr = Arr
 
 type 'a fn = 'a Syntax.fn
 
@@ -234,6 +244,10 @@ module I8_ba = Run.I8_ba
 module F64_ba = Run.F64_ba
 module F32_ba = Run.F32_ba
 
+let scalar s = TNum (Base_num s)
+
+let vector base numel = TNum (Vec_num { base; numel })
+
 let i64_num = I64_num
 
 let i32_num = I32_num
@@ -246,9 +260,9 @@ let f64_num = F64_num
 
 let f32_num = F32_num
 
-let scalar s = Base_num s
+let returning = Types.returning
 
-let vector base numel = Vec_num { base; numel }
+let ( @-> ) dom range = Types.(dom @-> range)
 
 let ( let* ) m f = Let (m, f)
 
@@ -526,6 +540,8 @@ module Run = struct
   let ( @-> ) dom (Fn range) =
     let (Rel dom) = subst dom in
     Fn (Fn_arrow (dom, range))
+
+  let add_intrinsic = Run.add_intrinsic
 
   let add_fundecl = Run.add_fundecl
 

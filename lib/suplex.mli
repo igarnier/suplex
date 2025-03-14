@@ -54,20 +54,30 @@ type 'a numerical = private
       { base : 'a base_numerical; numel : 'sz Size.t }
       -> ('a, 'sz) vec numerical
 
-type 'a typ
-
-type 'a ptr
-
 type 'a record
 
 type ('a, 'b, 'c, 'd) record_desc
 
-type ('a, 't) field = private
-  | Field : { name : string; ty : 'a typ } -> ('a, 't) field
+type 'a ptr = private Ptr
 
-type ('a, 'k) arr
+type ('a, 'k) arr = private Arr
 
 type 'a fn
+
+type 'a typ = private
+  | TUnit : unit typ
+  | TBool : bool typ
+  | TNum : 'a numerical -> 'a typ
+  | TPtr : 'a typ -> 'a ptr typ
+  | TArr_unk : 'a typ -> ('a, [ `unk ]) arr typ
+  | TArr_cst : 'a typ * int64 -> ('a, [ `cst ]) arr typ
+  | TRecord :
+      { descr : (_, 'u Vec.t, 'u Vec.t, 't record) record_desc }
+      -> 't record typ
+  | TFn : 'a fn -> 'a fn typ
+
+and ('a, 't) field = private
+  | Field : { name : string; ty : 'a typ } -> ('a, 't) field
 
 type 'a stack
 
@@ -93,6 +103,8 @@ module Types : sig
   val pp_fn : int list -> Format.formatter -> 'a fn -> unit
 
   val pp_typ : Format.formatter -> 'a typ -> unit
+
+  val pp_base_numerical : Format.formatter -> 'a base_numerical -> unit
 
   val pp_field : Format.formatter -> ('a, 'b) field -> unit
 
@@ -255,9 +267,13 @@ val f64_num : F64.t base_numerical
 
 val f32_num : F32.t base_numerical
 
-val scalar : 'a base_numerical -> 'a numerical
+val scalar : 'a base_numerical -> 'a typ
 
-val vector : 'a base_numerical -> 'sz Size.t -> ('a, 'sz) vec numerical
+val vector : 'a base_numerical -> 'sz Size.t -> ('a, 'sz) vec typ
+
+val ( @-> ) : 'a typ -> 'b fn -> ('a expr -> 'b) fn
+
+val returning : 'a typ -> 'a expr fn
 
 (** Sequencing operator. *)
 val ( let* ) : 'a expr -> ('a expr -> 'b expr) -> 'b expr
@@ -646,6 +662,8 @@ module Run : sig
 
   val ( @-> ) :
     ('a expr, 'b) rel -> ('c, 'd) fn_rel -> ('a expr -> 'c, 'b -> 'd) fn_rel
+
+  val add_intrinsic : 'a intrinsic -> ('a fn expr -> 'b module_) -> 'b module_
 
   val add_fundecl :
     string ->

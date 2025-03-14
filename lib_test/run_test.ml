@@ -1002,6 +1002,22 @@ let test_f32_of_f64 () =
   in
   Alcotest.(check (float 0.0)) "cast_f64_of_f32" 127.0 (f 127.0)
 
+let test_vector_reduce () =
+  let mdl =
+    Run.add_intrinsic Suplex_intrinsics.Vector.reduce_add_v4i32
+    @@ fun reduce_add ->
+    Run.main
+      "main"
+      Run.(unit @-> returning i32)
+      begin
+        end_frame @@ fun _self _ ->
+        let* test_vec = vec (module I32) Size._4 [| 0l; 1l; 2l; 3l |] in
+        call1 reduce_add test_vec
+      end
+  in
+  let main = Run.run_module ~debug:true mdl in
+  Alcotest.(check int32) "test_vector_reduce" 6l @@ main ()
+
 let () =
   let open Alcotest in
   run
@@ -1076,4 +1092,5 @@ let () =
           test_case "test_si_of_f32" `Quick test_si_of_f32;
           test_case "test_si_of_f64" `Quick test_si_of_f64;
           test_case "test_f64_of_f32" `Quick test_f64_of_f32;
-          test_case "test_f32_of_f64" `Quick test_f32_of_f64 ] ) ]
+          test_case "test_f32_of_f64" `Quick test_f32_of_f64;
+          test_case "test_vector_reduce" `Quick test_vector_reduce ] ) ]

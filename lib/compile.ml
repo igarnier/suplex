@@ -164,7 +164,6 @@ let new_llvm_state () =
       [| Llvm.pointer_type llvm_context |]
   in
   ignore (Llvm.declare_function "failwith" typ llvm_module) ;
-  ignore (Llvm.declare_function "print" typ llvm_module) ;
   { llvm_context;
     llvm_module;
     llvm_builder = Stdlib.Stack.create ();
@@ -1391,3 +1390,9 @@ and prototype : type s. llvm_state -> s fn -> Llvm.lltype list -> Llvm.lltype =
   | Arrow (ty, rest) ->
       let llty = LLVM_type.surface_type state.llvm_context ty in
       prototype state rest (llty :: acc)
+
+let intrinsic state { intrinsic_name; intrinsic_sg } =
+  let typ = prototype state intrinsic_sg [] in
+  { value = Llvm.declare_function intrinsic_name typ state.llvm_module;
+    ty = TFn intrinsic_sg
+  }

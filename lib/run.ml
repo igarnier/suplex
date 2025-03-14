@@ -282,6 +282,9 @@ type _ module_ =
         mdl : 's fn expr -> 'r module_
       }
       -> ('r * ('dom -> 'range)) module_
+  | Add_intrinsic :
+      { intrinsic : 's intrinsic; mdl : 's fn expr -> 'r module_ }
+      -> 'r module_
 
 type cfg = Llvm_executionengine.llcompileroptions
 
@@ -601,6 +604,11 @@ let run_module : type s.
             let f = box_ctypes_fn rel f in
             roots := Obj.magic f :: !roots ;
             ((rest, f), main, env))
+    | Add_intrinsic { intrinsic; mdl } ->
+        let key = Hmap.Key.create () in
+        let env = Hmap.add key (Compile.intrinsic state intrinsic) env in
+        let var = Var key in
+        loop (mdl var) env
   in
   let (res, main, _) = loop mdl Hmap.empty in
   if debug then Llvm.print_module (main ^ ".ll") state.llvm_module else () ;

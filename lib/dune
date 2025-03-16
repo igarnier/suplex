@@ -1,14 +1,21 @@
 (data_only_dirs libexternals)
 
 (rule
- (deps (source_tree libexternals))
- (targets libexternals.a dllexternals.so)
- (action
- (no-infer
-  (progn
-   (chdir libexternals (run make))
-   (copy libexternals/externals.a libexternals.a)
-   (copy libexternals/externals.so dllexternals.so)))))
+  (alias build-bindings)
+  (targets libexternals.a dllexternals.so)
+  ; TODO: refine if needed on MacOS
+  ; (enabled_if
+  ;  (or
+  ;   (= %{system} linux)
+  ;   (= %{system} linux_elf)
+  ;   (= %{system} elf)))
+  (deps (source_tree libexternals))
+  (action
+      (no-infer
+        (progn
+          (run make -C libexternals)
+          (copy libexternals/externals.a libexternals.a)
+          (copy libexternals/externals.so dllexternals.so)))))
 
 (library
   (name suplex)
@@ -16,9 +23,14 @@
   (modes native)
   (libraries hmap llvm llvm.executionengine llvm.analysis llvm.all_backends llvm.target ctypes ctypes.foreign)
   (foreign_archives externals)
+  (library_flags (:include library_flags.sexp))
   (instrumentation (backend bisect_ppx))
-  (ocamlopt_flags (-g))
-)
+  (ocamlopt_flags (-g)))
+
+(rule
+  (targets library_flags.sexp)
+  (deps (:discover config/discover.exe))
+  (action (run %{discover})))
 
 (documentation
    (package suplex)

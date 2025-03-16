@@ -17,6 +17,7 @@ depends: [
   "llvm" {= "17.0.6"}
   "ctypes" {= "0.23.0"}
   "ctypes-foreign" {= "0.23.0"}
+  "dune-configurator" {>= "2.8"}
   "odoc" {with-doc}
 ]
 build: [

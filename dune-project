@@ -24,7 +24,8 @@
     (alcotest (and (>= 1.6.0) :with-test))
     (llvm (= 17.0.6))
     (ctypes (= 0.23.0))
-    (ctypes-foreign (= 0.23.0))))
+    (ctypes-foreign (= 0.23.0))
+    (dune-configurator (>= 2.8))))
 
 (bug_reports http://github.com/igarnier/suplex)
 (homepage http://github.com/igarnier/suplex)

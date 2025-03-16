@@ -248,6 +248,8 @@ let scalar s = TNum (Base_num s)
 
 let vector base numel = TNum (Vec_num { base; numel })
 
+let base_numerical_kind = base_numerical_kind
+
 let i64_num = I64_num
 
 let i32_num = I32_num

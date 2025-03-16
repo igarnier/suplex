@@ -40,7 +40,7 @@ type f64 = private F64
 
 type ('a, 'sz) vec = private Vector
 
-type 'a base_numerical = private
+type 'a base_numerical =
   | I64_num : i64 base_numerical
   | I32_num : i32 base_numerical
   | I16_num : i16 base_numerical
@@ -270,6 +270,8 @@ val f32_num : F32.t base_numerical
 val scalar : 'a base_numerical -> 'a typ
 
 val vector : 'a base_numerical -> 'sz Size.t -> ('a, 'sz) vec typ
+
+val base_numerical_kind : 'a. 'a base_numerical -> [ `fp | `int ]
 
 val ( @-> ) : 'a typ -> 'b fn -> ('a expr -> 'b) fn
 

@@ -1002,21 +1002,122 @@ let test_f32_of_f64 () =
   in
   Alcotest.(check (float 0.0)) "cast_f64_of_f32" 127.0 (f 127.0)
 
-let test_vector_reduce () =
+let test_vector_reduce_i32 name op size args expected () =
   let mdl =
-    Run.add_intrinsic Suplex_intrinsics.Vector.reduce_add_v4i32
-    @@ fun reduce_add ->
+    Run.add_intrinsic Suplex_intrinsics.Vector.(reduce op I32_num size)
+    @@ fun reduce ->
     Run.main
       "main"
       Run.(unit @-> returning i32)
       begin
         end_frame @@ fun _self _ ->
-        let* test_vec = vec (module I32) Size._4 [| 0l; 1l; 2l; 3l |] in
-        call1 reduce_add test_vec
+        let* test_vec = vec (module I32) size args in
+        call1 reduce test_vec
       end
   in
   let main = Run.run_module ~debug:true mdl in
-  Alcotest.(check int32) "test_vector_reduce" 6l @@ main ()
+  Alcotest.(check int32) name expected @@ main ()
+
+let test_vector_reduce_f32 name op size args expected () =
+  let mdl =
+    Run.add_intrinsic Suplex_intrinsics.Vector.(reduce op F32_num size)
+    @@ fun reduce ->
+    Run.main
+      "main"
+      Run.(unit @-> returning f32)
+      begin
+        end_frame @@ fun _self _ ->
+        let* test_vec = vec (module F32) size args in
+        call1 reduce test_vec
+      end
+  in
+  let main = Run.run_module ~debug:true mdl in
+  Alcotest.(check (float 0.0001)) name expected @@ main ()
+
+let test_vector_reduce_acc_f32 name op size acc args expected () =
+  let mdl =
+    Run.add_intrinsic Suplex_intrinsics.Vector.(reduce_acc op F32_num size)
+    @@ fun reduce ->
+    Run.main
+      "main"
+      Run.(unit @-> returning f32)
+      begin
+        end_frame @@ fun _self _ ->
+        let* test_vec = vec (module F32) size args in
+        call2 reduce (F32.v acc) test_vec
+      end
+  in
+  let main = Run.run_module ~debug:true mdl in
+  Alcotest.(check (float 0.0001)) name expected @@ main ()
+
+type 'v case =
+  | Case :
+      { op : Suplex_intrinsics.Vector.reduce_op;
+        acc : 'v option;
+        i : 'v array;
+        o : 'v;
+        size : 'sz Size.t
+      }
+      -> 'v case
+
+let case op ?acc i o size = Case { op; acc; i; o; size }
+
+let name_of_case = function
+  | Case { op; size; _ } ->
+      Printf.sprintf
+        "vec_reduce_%d_%s"
+        (Size.to_int size)
+        (Suplex_intrinsics.Vector.string_of_op op)
+
+let vector_reduce_i32_cases =
+  let open Suplex_intrinsics.Vector in
+  let ops =
+    [ case Add [| 1l; 2l; 3l; 4l |] 10l Size._4;
+      case Mul [| 1l; 2l; 3l; 4l |] 24l Size._4;
+      case And [| 0b10l; 0b11l |] 0b10l Size._2;
+      case Or [| 0b10l; 0b11l |] 0b11l Size._2;
+      case Xor [| 0b10l; 0b11l |] 0b01l Size._2;
+      case SMax [| -1l; 2l; 3l; 4l |] 4l Size._4;
+      case SMin [| -1l; 2l; 3l; 4l |] (-1l) Size._4;
+      case UMax [| -1l; 2l; 3l; 4l |] (-1l) Size._4;
+      case UMin [| -1l; 2l; 3l; 4l |] 2l Size._4 ]
+  in
+  List.map
+    (fun (Case { op; acc = _; i; o; size } as c) ->
+      let name = name_of_case c ^ "_i32" in
+      Alcotest.test_case name `Quick (test_vector_reduce_i32 name op size i o))
+    ops
+
+let vector_reduce_f32_noacc_cases =
+  let open Suplex_intrinsics.Vector in
+  let ops =
+    [ case FMax [| 1.0; 2.0; 3.0; 4.0 |] 4.0 Size._4;
+      case FMax [| 1.0; 2.0; 3.0; Float.nan |] 3.0 Size._4;
+      case FMin [| 1.0; 2.0; 3.0; 4.0 |] 1.0 Size._4;
+      case FMaximum [| 1.0; 2.0; 3.0; Float.nan |] Float.nan Size._4;
+      case FMinimum [| 1.0; 2.0; 3.0; 4.0 |] 1.0 Size._4 ]
+  in
+  List.map
+    (fun (Case { op; acc = _; i; o; size } as c) ->
+      let name = name_of_case c ^ "_f32" in
+      Alcotest.test_case name `Quick (test_vector_reduce_f32 name op size i o))
+    ops
+
+let vector_reduce_f32_acc_cases =
+  let open Suplex_intrinsics.Vector in
+  let ops =
+    [ case FAdd ~acc:0.0 [| 1.0; 2.0; 3.0; 4.0 |] 10.0 Size._4;
+      case FMul ~acc:1.0 [| 1.0; 2.0; 3.0; 4.0 |] 24.0 Size._4 ]
+  in
+  List.map
+    (fun (Case { op; acc; i; o; size } as c) ->
+      let acc = Option.get acc in
+      let name = name_of_case c ^ "_f32" in
+      Alcotest.test_case
+        name
+        `Quick
+        (test_vector_reduce_acc_f32 name op size acc i o))
+    ops
 
 let () =
   let open Alcotest in
@@ -1092,5 +1193,7 @@ let () =
           test_case "test_si_of_f32" `Quick test_si_of_f32;
           test_case "test_si_of_f64" `Quick test_si_of_f64;
           test_case "test_f64_of_f32" `Quick test_f64_of_f32;
-          test_case "test_f32_of_f64" `Quick test_f32_of_f64;
-          test_case "test_vector_reduce" `Quick test_vector_reduce ] ) ]
+          test_case "test_f32_of_f64" `Quick test_f32_of_f64 ] );
+      ("vector_i32", vector_reduce_i32_cases);
+      ("vector_f32_noacc", vector_reduce_f32_noacc_cases);
+      ("vector_f32_acc", vector_reduce_f32_acc_cases) ]

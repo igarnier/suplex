@@ -1,23 +1,81 @@
 open Suplex
 
-let suffix_of_vector_type : type a sz. (a, sz) vec typ -> string =
-  fun (typ : (a, sz) vec typ) ->
-  (match typ with
-   | TNum (Base_num _) -> assert false
-   | TRecord _ -> assert false
-   | TFn _ -> assert false
-   | TNum (Vec_num { base; numel }) ->
-     let numel = Size.to_int numel in
-     let base = Format.asprintf "%a" Types.pp_base_numerical base in
-     Printf.sprintf "v%d%s" numel base
-  )
-
-let make_intrinsic base_name vec_typ proto =
-  let suffix = suffix_of_vector_type vec_typ in
-  let name = Printf.sprintf "%s.%s" base_name suffix in
-  intrinsic name proto
-
 module Vector = struct
-  let reduce_add_v4i32 = make_intrinsic "llvm.vector.reduce.add" (vector i32_num Size._4) ((vector i32_num Size._4) @-> returning (scalar i32_num))
-  let reduce_add_v2i64 = make_intrinsic "llvm.vector.reduce.add" (vector i64_num Size._2) ((vector i64_num Size._2) @-> returning (scalar i64_num))
+  type reduce_op =
+    | Add
+    | Mul
+    | FAdd
+    | FMul
+    | And
+    | Or
+    | Xor
+    | SMax
+    | SMin
+    | UMax
+    | UMin
+    | FMax
+    | FMin
+    | FMaximum
+    | FMinimum
+
+  let string_of_op op =
+    match op with
+    | Add -> "add"
+    | Mul -> "mul"
+    | FAdd -> "fadd"
+    | FMul -> "fmul"
+    | And -> "and"
+    | Or -> "or"
+    | Xor -> "xor"
+    | SMax -> "smax"
+    | SMin -> "smin"
+    | UMax -> "umax"
+    | UMin -> "umin"
+    | FMax -> "fmax"
+    | FMin -> "fmin"
+    | FMaximum -> "fmaximum"
+    | FMinimum -> "fminimum"
+
+  let assert_op_compatible_with_kind = function
+    | ((Add | Mul | And | Or | Xor | SMax | SMin | UMax | UMin), `int) -> ()
+    | ((FAdd | FMul | FMax | FMin | FMaximum | FMinimum), `fp) -> ()
+    | (op, `int) ->
+        Format.kasprintf
+          failwith
+          "Reduction %s not compatible with integer type"
+          (string_of_op op)
+    | (op, `fp) ->
+        Format.kasprintf
+          failwith
+          "Reduction %s not compatible with floating-point type"
+          (string_of_op op)
+
+  let reduce (type s len) (op : reduce_op) (scty : s base_numerical)
+      (len : len Size.t) =
+    assert_op_compatible_with_kind (op, base_numerical_kind scty) ;
+    let name = string_of_op op in
+    intrinsic
+      (Format.asprintf
+         "llvm.vector.reduce.%s.v%d%a"
+         name
+         (Size.to_int len)
+         Types.pp_base_numerical
+         scty)
+      (vector scty len @-> returning (scalar scty))
+
+  let reduce_acc (type s len) (op : reduce_op) (scty : s base_numerical)
+      (len : len Size.t) =
+    (match op with
+    | FAdd | FMul -> ()
+    | _ -> failwith "reduce_acc: only supported for FAdd and FMul") ;
+    assert_op_compatible_with_kind (op, base_numerical_kind scty) ;
+    let name = string_of_op op in
+    intrinsic
+      (Format.asprintf
+         "llvm.vector.reduce.%s.v%d%a"
+         name
+         (Size.to_int len)
+         Types.pp_base_numerical
+         scty)
+      (scalar scty @-> vector scty len @-> returning (scalar scty))
 end

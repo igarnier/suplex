@@ -37,6 +37,8 @@ module LLVM_type = struct
 
   let int8_t ctxt = Llvm.i8_type ctxt [@@ocaml.warning "-32"]
 
+  let int1_t ctxt = Llvm.i1_type ctxt [@@ocaml.warning "-32"]
+
   let size_t ctxt = Llvm.i64_type ctxt [@@ocaml.warning "-32"]
 
   let bool_t ctxt = Llvm.i1_type ctxt
@@ -53,6 +55,7 @@ module LLVM_type = struct
     | I32_num -> int32_t context
     | I16_num -> int16_t context
     | I8_num -> int8_t context
+    | I1_num -> int1_t context
     | F32_num -> float32_t context
     | F64_num -> float64_t context
 
@@ -1128,7 +1131,7 @@ let rec compile : type a.
         LLVM_type.of_numerical state.llvm_context (Base_num F32_num)
       in
       match n with
-      | I64_num | I32_num | I16_num | I8_num ->
+      | I64_num | I32_num | I16_num | I8_num | I1_num ->
           let fp =
             Llvm.build_sitofp v.value target "si_to_f32" (get_builder state)
           in
@@ -1145,7 +1148,7 @@ let rec compile : type a.
         LLVM_type.of_numerical state.llvm_context (Base_num F64_num)
       in
       match n with
-      | I64_num | I32_num | I16_num | I8_num ->
+      | I64_num | I32_num | I16_num | I8_num | I1_num ->
           Llvm.build_sitofp v.value target "si_to_f64" (get_builder state)
           |> with_type Types.f64
       | F64_num -> Some v
@@ -1156,7 +1159,7 @@ let rec compile : type a.
       let target = LLVM_type.of_numerical state.llvm_context (Base_num n) in
       let* v = compile env state v in
       match n with
-      | I64_num | I32_num | I16_num | I8_num ->
+      | I64_num | I32_num | I16_num | I8_num | I1_num ->
           Llvm.build_fptosi v.value target "f32_to_si" (get_builder state)
           |> with_type (TNum (Base_num n))
       | F32_num -> Some v
@@ -1167,7 +1170,7 @@ let rec compile : type a.
       let target = LLVM_type.of_numerical state.llvm_context (Base_num n) in
       let* v = compile env state v in
       match n with
-      | I64_num | I32_num | I16_num | I8_num ->
+      | I64_num | I32_num | I16_num | I8_num | I1_num ->
           Llvm.build_fptosi v.value target "f64_to_si" (get_builder state)
           |> with_type (TNum (Base_num n))
       | F64_num -> Some v
@@ -1182,7 +1185,7 @@ let rec compile : type a.
       let target_ty = TNum target_num_ty in
       let target = LLVM_type.of_numerical state.llvm_context target_num_ty in
       match n with
-      | I64_num | I32_num | I16_num | I8_num ->
+      | I64_num | I32_num | I16_num | I8_num | I1_num ->
           let fp =
             Llvm.build_sitofp v.value target "vec_si_to_f32" (get_builder state)
           in
@@ -1205,7 +1208,7 @@ let rec compile : type a.
       let target_ty = TNum target_num_ty in
       let target = LLVM_type.of_numerical state.llvm_context target_num_ty in
       match n with
-      | I64_num | I32_num | I16_num | I8_num ->
+      | I64_num | I32_num | I16_num | I8_num | I1_num ->
           let fp =
             Llvm.build_sitofp v.value target "vec_si_to_f32" (get_builder state)
           in
@@ -1226,7 +1229,7 @@ let rec compile : type a.
       let target_num_ty = cast_base_vector_type (numerical_of_type v.ty) n in
       let target_ty = TNum target_num_ty in
       match n with
-      | I64_num | I32_num | I16_num | I8_num ->
+      | I64_num | I32_num | I16_num | I8_num | I1_num ->
           Llvm.build_fptosi v.value target "f32_to_si" (get_builder state)
           |> with_type target_ty
       | F32_num -> Some v
@@ -1239,7 +1242,7 @@ let rec compile : type a.
       let target_num_ty = cast_base_vector_type (numerical_of_type v.ty) n in
       let target_ty = TNum target_num_ty in
       match n with
-      | I64_num | I32_num | I16_num | I8_num ->
+      | I64_num | I32_num | I16_num | I8_num | I1_num ->
           Llvm.build_fptosi v.value target "f64_to_si" (get_builder state)
           |> with_type target_ty
       | F64_num -> Some v

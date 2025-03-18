@@ -34,6 +34,8 @@ type i16 = private I16
 
 type i8 = private I8
 
+type i1 = private I1
+
 type f32 = private F32
 
 type f64 = private F64
@@ -45,6 +47,7 @@ type 'a base_numerical =
   | I32_num : i32 base_numerical
   | I16_num : i16 base_numerical
   | I8_num : i8 base_numerical
+  | I1_num : bool base_numerical
   | F64_num : f64 base_numerical
   | F32_num : f32 base_numerical
 

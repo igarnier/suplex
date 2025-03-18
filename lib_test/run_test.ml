@@ -1072,15 +1072,15 @@ let name_of_case = function
 let vector_reduce_i32_cases =
   let open Suplex_intrinsics.Vector in
   let ops =
-    [ case Add [| 1l; 2l; 3l; 4l |] 10l Size._4;
-      case Mul [| 1l; 2l; 3l; 4l |] 24l Size._4;
-      case And [| 0b10l; 0b11l |] 0b10l Size._2;
-      case Or [| 0b10l; 0b11l |] 0b11l Size._2;
-      case Xor [| 0b10l; 0b11l |] 0b01l Size._2;
-      case SMax [| -1l; 2l; 3l; 4l |] 4l Size._4;
-      case SMin [| -1l; 2l; 3l; 4l |] (-1l) Size._4;
-      case UMax [| -1l; 2l; 3l; 4l |] (-1l) Size._4;
-      case UMin [| -1l; 2l; 3l; 4l |] 2l Size._4 ]
+    [ case add [| 1l; 2l; 3l; 4l |] 10l Size._4;
+      case mul [| 1l; 2l; 3l; 4l |] 24l Size._4;
+      case and_ [| 0b10l; 0b11l |] 0b10l Size._2;
+      case or_ [| 0b10l; 0b11l |] 0b11l Size._2;
+      case xor [| 0b10l; 0b11l |] 0b01l Size._2;
+      case smax [| -1l; 2l; 3l; 4l |] 4l Size._4;
+      case smin [| -1l; 2l; 3l; 4l |] (-1l) Size._4;
+      case umax [| -1l; 2l; 3l; 4l |] (-1l) Size._4;
+      case umin [| -1l; 2l; 3l; 4l |] 2l Size._4 ]
   in
   List.map
     (fun (Case { op; acc = _; i; o; size } as c) ->
@@ -1091,11 +1091,11 @@ let vector_reduce_i32_cases =
 let vector_reduce_f32_noacc_cases =
   let open Suplex_intrinsics.Vector in
   let ops =
-    [ case FMax [| 1.0; 2.0; 3.0; 4.0 |] 4.0 Size._4;
-      case FMax [| 1.0; 2.0; 3.0; Float.nan |] 3.0 Size._4;
-      case FMin [| 1.0; 2.0; 3.0; 4.0 |] 1.0 Size._4;
-      case FMaximum [| 1.0; 2.0; 3.0; Float.nan |] Float.nan Size._4;
-      case FMinimum [| 1.0; 2.0; 3.0; 4.0 |] 1.0 Size._4 ]
+    [ case fmax [| 1.0; 2.0; 3.0; 4.0 |] 4.0 Size._4;
+      case fmax [| 1.0; 2.0; 3.0; Float.nan |] 3.0 Size._4;
+      case fmin [| 1.0; 2.0; 3.0; 4.0 |] 1.0 Size._4;
+      case fmaximum [| 1.0; 2.0; 3.0; Float.nan |] Float.nan Size._4;
+      case fminimum [| 1.0; 2.0; 3.0; 4.0 |] 1.0 Size._4 ]
   in
   List.map
     (fun (Case { op; acc = _; i; o; size } as c) ->
@@ -1106,8 +1106,8 @@ let vector_reduce_f32_noacc_cases =
 let vector_reduce_f32_acc_cases =
   let open Suplex_intrinsics.Vector in
   let ops =
-    [ case FAdd ~acc:0.0 [| 1.0; 2.0; 3.0; 4.0 |] 10.0 Size._4;
-      case FMul ~acc:1.0 [| 1.0; 2.0; 3.0; 4.0 |] 24.0 Size._4 ]
+    [ case fadd ~acc:0.0 [| 1.0; 2.0; 3.0; 4.0 |] 10.0 Size._4;
+      case fmul ~acc:1.0 [| 1.0; 2.0; 3.0; 4.0 |] 24.0 Size._4 ]
   in
   List.map
     (fun (Case { op; acc; i; o; size } as c) ->

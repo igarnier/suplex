@@ -19,6 +19,7 @@ let pp_base_numerical : type a. Format.formatter -> a base_numerical -> unit =
   | I32_num -> fprintf fmtr "i32"
   | I16_num -> fprintf fmtr "i16"
   | I8_num -> fprintf fmtr "i8"
+  | I1_num -> fprintf fmtr "i1"
   | F32_num -> fprintf fmtr "f32"
   | F64_num -> fprintf fmtr "f64"
 

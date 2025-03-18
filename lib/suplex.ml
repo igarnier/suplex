@@ -13,6 +13,8 @@ type i16 = Syntax.i16 = I16
 
 type i8 = Syntax.i8 = I8
 
+type i1 = Syntax.i1 = I1
+
 type f32 = Syntax.f32 = F32
 
 type f64 = Syntax.f64 = F64
@@ -24,6 +26,7 @@ type 'a base_numerical = 'a Syntax.base_numerical =
   | I32_num : i32 base_numerical
   | I16_num : i16 base_numerical
   | I8_num : i8 base_numerical
+  | I1_num : bool base_numerical
   | F64_num : f64 base_numerical
   | F32_num : f32 base_numerical
 

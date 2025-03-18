@@ -12,6 +12,9 @@ type i16 = I16
 (** The type tag of 8-bits signed integers. *)
 type i8 = I8
 
+(** The type tag of 1-bits integers. Used in boolean masks. *)
+type i1 = I1
+
 (** The type tag of single-precision floating-point numbers. *)
 type f32 = F32
 
@@ -36,6 +39,7 @@ type 'a base_numerical =
   | I32_num : i32 base_numerical
   | I16_num : i16 base_numerical
   | I8_num : i8 base_numerical
+  | I1_num : bool base_numerical
   | F64_num : f64 base_numerical
   | F32_num : f32 base_numerical
 
@@ -63,6 +67,7 @@ let base_numerical_kind : type a. a base_numerical -> [ `fp | `int ] =
   | I32_num -> `int
   | I16_num -> `int
   | I8_num -> `int
+  | I1_num -> `int
   | F32_num -> `fp
   | F64_num -> `fp
 

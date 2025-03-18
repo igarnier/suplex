@@ -18,6 +18,36 @@ module Vector = struct
     | FMaximum
     | FMinimum
 
+  let add = Add
+
+  let mul = Mul
+
+  let fadd = FAdd
+
+  let fmul = FMul
+
+  let and_ = And
+
+  let or_ = Or
+
+  let xor = Xor
+
+  let smax = SMax
+
+  let smin = SMin
+
+  let umax = UMax
+
+  let umin = UMin
+
+  let fmax = FMax
+
+  let fmin = FMin
+
+  let fmaximum = FMaximum
+
+  let fminimum = FMinimum
+
   let string_of_op op =
     match op with
     | Add -> "add"

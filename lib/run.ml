@@ -89,6 +89,7 @@ end) : BA_private with type elt = X.s and type c_elt = X.c = struct
     | I32_rel -> Ctypes.int32_t
     | I16_rel -> Ctypes.int16_t
     | I8_rel -> Ctypes.int8_t
+    | I1_rel -> Ctypes.bool
     | F32_rel -> Ctypes.float
     | F64_rel -> Ctypes.double
 

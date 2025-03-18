@@ -10,6 +10,7 @@ let base_numerical_of_num_rel : type s o. (s, o) num_rel -> s base_numerical =
   | I32_rel -> I32_num
   | I16_rel -> I16_num
   | I8_rel -> I8_num
+  | I1_rel -> I1_num
   | F64_rel -> F64_num
   | F32_rel -> F32_num
 
@@ -311,6 +312,7 @@ let const : type s o. (s, o) num_rel -> o -> s expr =
   | I32_rel -> I32 v
   | I16_rel -> I16 v
   | I8_rel -> I8 v
+  | I1_rel -> I1 v
   | F64_rel -> F64 v
   | F32_rel -> F32 v
 
@@ -330,6 +332,9 @@ let compile_const : type s o.
       with_type Types.i16 @@ Llvm.const_int (LLVM_type.int16_t llvm_context) v
   | I8_rel ->
       with_type Types.i8 @@ Llvm.const_int (LLVM_type.int8_t llvm_context) v
+  | I1_rel ->
+      with_type Types.i1
+      @@ Llvm.const_int (LLVM_type.int1_t llvm_context) (if v then 1 else 0)
   | F64_rel ->
       with_type Types.f64
       @@ Llvm.const_float (LLVM_type.float64_t llvm_context) v
@@ -376,6 +381,7 @@ let rec compile : type a.
   | I32 i -> compile_const state.llvm_context I32_rel i
   | I16 i -> compile_const state.llvm_context I16_rel i
   | I8 i -> compile_const state.llvm_context I8_rel i
+  | I1 i -> compile_const state.llvm_context I1_rel i
   | F64 f -> compile_const state.llvm_context F64_rel f
   | F32 f -> compile_const state.llvm_context F32_rel f
   | Vec (num_rel, sz, values) ->

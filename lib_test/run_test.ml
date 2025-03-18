@@ -1004,7 +1004,7 @@ let test_f32_of_f64 () =
 
 let test_vector_reduce_i32 name op size args expected () =
   let mdl =
-    Run.add_intrinsic Suplex_intrinsics.Vector.(reduce op I32_num size)
+    Run.add_intrinsic Suplex_intrinsics.Vector.Reduce.(reduce op I32_num size)
     @@ fun reduce ->
     Run.main
       "main"
@@ -1020,7 +1020,7 @@ let test_vector_reduce_i32 name op size args expected () =
 
 let test_vector_reduce_f32 name op size args expected () =
   let mdl =
-    Run.add_intrinsic Suplex_intrinsics.Vector.(reduce op F32_num size)
+    Run.add_intrinsic Suplex_intrinsics.Vector.Reduce.(reduce op F32_num size)
     @@ fun reduce ->
     Run.main
       "main"
@@ -1036,7 +1036,8 @@ let test_vector_reduce_f32 name op size args expected () =
 
 let test_vector_reduce_acc_f32 name op size acc args expected () =
   let mdl =
-    Run.add_intrinsic Suplex_intrinsics.Vector.(reduce_acc op F32_num size)
+    Run.add_intrinsic
+      Suplex_intrinsics.Vector.Reduce.(reduce_acc op F32_num size)
     @@ fun reduce ->
     Run.main
       "main"
@@ -1052,7 +1053,7 @@ let test_vector_reduce_acc_f32 name op size acc args expected () =
 
 type 'v case =
   | Case :
-      { op : Suplex_intrinsics.Vector.reduce_op;
+      { op : Suplex_intrinsics.Vector.Reduce.op;
         acc : 'v option;
         i : 'v array;
         o : 'v;
@@ -1067,10 +1068,10 @@ let name_of_case = function
       Printf.sprintf
         "vec_reduce_%d_%s"
         (Size.to_int size)
-        (Suplex_intrinsics.Vector.string_of_op op)
+        (Suplex_intrinsics.Vector.Reduce.string_of_op op)
 
 let vector_reduce_i32_cases =
-  let open Suplex_intrinsics.Vector in
+  let open Suplex_intrinsics.Vector.Reduce in
   let ops =
     [ case add [| 1l; 2l; 3l; 4l |] 10l Size._4;
       case mul [| 1l; 2l; 3l; 4l |] 24l Size._4;
@@ -1089,7 +1090,7 @@ let vector_reduce_i32_cases =
     ops
 
 let vector_reduce_f32_noacc_cases =
-  let open Suplex_intrinsics.Vector in
+  let open Suplex_intrinsics.Vector.Reduce in
   let ops =
     [ case fmax [| 1.0; 2.0; 3.0; 4.0 |] 4.0 Size._4;
       case fmax [| 1.0; 2.0; 3.0; Float.nan |] 3.0 Size._4;
@@ -1104,7 +1105,7 @@ let vector_reduce_f32_noacc_cases =
     ops
 
 let vector_reduce_f32_acc_cases =
-  let open Suplex_intrinsics.Vector in
+  let open Suplex_intrinsics.Vector.Reduce in
   let ops =
     [ case fadd ~acc:0.0 [| 1.0; 2.0; 3.0; 4.0 |] 10.0 Size._4;
       case fmul ~acc:1.0 [| 1.0; 2.0; 3.0; 4.0 |] 24.0 Size._4 ]

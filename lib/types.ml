@@ -184,6 +184,8 @@ let i16 = base_num I16_num
 
 let i8 = base_num I8_num
 
+let i1 = base_num I1_num
+
 let f32 = base_num F32_num
 
 let f64 = base_num F64_num

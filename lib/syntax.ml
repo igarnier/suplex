@@ -55,6 +55,7 @@ type (_, _) num_rel =
   | I32_rel : (i32, int32) num_rel
   | I16_rel : (i16, int) num_rel
   | I8_rel : (i8, int) num_rel
+  | I1_rel : (bool, bool) num_rel
   | F64_rel : (f64, float) num_rel
   | F32_rel : (f32, float) num_rel
 
@@ -139,6 +140,7 @@ and _ expr =
   | I32 : int32 -> i32 expr
   | I16 : int -> i16 expr
   | I8 : int -> i8 expr
+  | I1 : bool -> bool expr
   | F64 : float -> f64 expr
   | F32 : float -> f32 expr
   | Add : 'a numerical * 'a expr * 'a expr -> 'a expr

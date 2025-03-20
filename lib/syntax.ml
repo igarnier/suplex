@@ -277,6 +277,8 @@ module Stack = struct
 
   let arr ty len = SV_arr (ty, len)
 
+  let vec base numel = SV_num (Vec_num { base; numel })
+
   let arr_cst ty len =
     if len < 0L then invalid_arg "arr_cst: negative size" ;
     SV_arr_cst (ty, len)

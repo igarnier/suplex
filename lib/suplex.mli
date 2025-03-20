@@ -507,16 +507,19 @@ module Stack : sig
   (** [f32] declares a stack variable of type [f32] *)
   val f32 : f32 ptr stack_var
 
-  (** [ptr ty] declares a stack variable of type [ptr ty] *)
+  (** [ptr ty] declares a stack variable of type [ptr] *)
   val ptr : 'a typ -> 'a ptr ptr stack_var
 
-  (** [arr ty n] declares a stack variable of type [arr ty n] *)
+  (** [arr ty n] declares an array stack variable. *)
   val arr : 'a typ -> i64 expr -> ('a, [ `unk ]) arr stack_var
 
-  (** [arr_cst ty n] declares a stack variable of type [arr ty n] *)
+  (** [arr_cst ty n] declares a fixed-size array stack variable. *)
   val arr_cst : 'a typ -> int64 -> ('a, [ `cst ]) arr stack_var
 
-  (** [strct desc] declares a stack variable of type [TRecord desc] *)
+  (** [vec ty sz] declares a vector stack variable. *)
+  val vec : 'a base_numerical -> 'sz Size.t -> ('a, 'sz) vec ptr stack_var
+
+  (** [strct desc] declares a record stack variable. *)
   val strct :
     ('a, 'b Vec.t, 'b Vec.t, 'c record) record_desc -> 'c record stack_var
 end

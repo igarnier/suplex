@@ -163,6 +163,7 @@ and _ expr =
   | GetField : ('a, 'u record) field * 'u record expr -> 'a expr
   | GetFieldAddr : ('a, 'u record) field * 'u record expr -> 'a ptr expr
   | SetField : ('a, 'u record) field * 'u record expr * 'a expr -> unit expr
+  | Cast : ('a, [ `unk ]) arr expr * 'b typ -> ('b, [ `unk ]) arr expr
   | Cond : bool expr * 'a expr * 'a expr -> 'a expr
   | For :
       { init : i64 expr;

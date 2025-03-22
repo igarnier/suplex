@@ -347,6 +347,10 @@ val ( .%&{} ) : 'a record expr -> ('b, 'a record) field -> 'b ptr expr
 (** [record.%{f} <- v] stores [v] at the field [f] in the record [record] *)
 val ( .%{}<- ) : 'a record expr -> ('b, 'a record) field -> 'b expr -> unit expr
 
+(** [cast arr ty] casts the element type of an array to a target type. It is up
+    to the user to ensure that the cast is sensible. *)
+val cast : ('a, [ `unk ]) arr expr -> 'b typ -> ('b, [ `unk ]) arr expr
+
 (** [if_ c iftrue iffalse] constructs a conditional expression. *)
 val if_ : bool expr -> 'a expr -> 'a expr -> 'a expr
 

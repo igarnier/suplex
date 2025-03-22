@@ -679,6 +679,13 @@ let rec compile : type a.
       match record_ptr.ty with
       | TNum (Base_num _) -> .
       | TRecord _ as recty -> set_field state field recty record_ptr v)
+  | Cast (arr, target) ->
+      let* arr = compile env state arr in
+      let target_ty = LLVM_type.storage_of_type state.llvm_context target in
+      let cast =
+        Llvm.build_bitcast arr.value target_ty "cast" (get_builder state)
+      in
+      with_type (Types.arr target) cast
   | Cond (cond, ift, iff) ->
       let* cond = compile env state cond in
       let end_of_cond_pos = Llvm.insertion_block (get_builder state) in

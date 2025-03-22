@@ -311,6 +311,8 @@ let ( .%&{} ) a b = GetFieldAddr (b, a)
 
 let ( .%{}<- ) a b c = SetField (b, a, c)
 
+let cast ar ty = Cast (ar, ty)
+
 let if_ c ift iff = Cond (c, ift, iff)
 
 let for_ ~init ~pred ~step body = For { init; pred; step; body }

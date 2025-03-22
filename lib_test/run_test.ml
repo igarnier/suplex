@@ -514,7 +514,6 @@ let test_store_cst_arr () =
   Alcotest.(check bool) "store_cst_arr" true @@ f ()
 
 let test_set_cst_arr () =
-  let ( let*:: ) = local in
   let f =
     Run.run
       Run.(unit @-> returning i64)
@@ -1120,6 +1119,53 @@ let vector_reduce_f32_acc_cases =
         (test_vector_reduce_acc_f32 name op size acc i o))
     ops
 
+let dot_product =
+  Run.run
+    Run.(bigarray_f32 @-> bigarray_f32 @-> returning f32)
+    (let*:: sum = Stack.f32 in
+     end_frame @@ fun _self vec1 vec2 ->
+     let* size1 = vec1.%{F32_ba.dim} in
+     let* size2 = vec2.%{F32_ba.dim} in
+     let* _ =
+       if_
+         (I64.eq size1 size2)
+         (sum <-- F32.v 0.0)
+         (fail "Arrays must have the same size")
+     in
+     let* _ = sum <-- F32.v 0.0 in
+     let* _ =
+       for_
+         ~init:(I64.v 0L)
+         ~pred:(fun i -> I64.lt i size1)
+         ~step:(fun i -> I64.add i I64.one)
+         (fun i ->
+           let* v1 = vec1.%{F32_ba.data}.%[i] in
+           let* v2 = vec2.%{F32_ba.data}.%[i] in
+           sum <-- F32.add ~*sum (F32.mul v1 v2))
+     in
+     ~*sum)
+
+(* Helper function to create a bigarray *)
+let create_bigarray_f32 arr =
+  let open Bigarray in
+  Array1.of_array float32 c_layout arr
+
+(* Test cases *)
+let test_dot_product () =
+  (* Test case 1: Matching arrays *)
+  let arr1 = create_bigarray_f32 [| 1.0; 2.0; 3.0 |] in
+  let arr2 = create_bigarray_f32 [| 4.0; 5.0; 6.0 |] in
+  let result = dot_product arr1 arr2 in
+  Alcotest.(check (float 0.001)) "Matching arrays" 32.0 result ;
+
+  (* Test case 2: Different sizes *)
+  let arr3 = create_bigarray_f32 [| 1.0; 2.0 |] in
+  let arr4 = create_bigarray_f32 [| 3.0; 4.0; 5.0 |] in
+  Alcotest.check_raises
+    "Different sizes"
+    (Failure "Arrays must have the same size")
+    (fun () -> ignore (dot_product arr3 arr4))
+
 let () =
   let open Alcotest in
   run
@@ -1197,4 +1243,5 @@ let () =
           test_case "test_f32_of_f64" `Quick test_f32_of_f64 ] );
       ("vector_i32", vector_reduce_i32_cases);
       ("vector_f32_noacc", vector_reduce_f32_noacc_cases);
-      ("vector_f32_acc", vector_reduce_f32_acc_cases) ]
+      ("vector_f32_acc", vector_reduce_f32_acc_cases);
+      ("dot_product", [test_case "dot_product" `Quick test_dot_product]) ]

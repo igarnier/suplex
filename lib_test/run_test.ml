@@ -36,12 +36,12 @@ let test_fact () =
            Run.(i64 @-> returning i64)
            ( local Stack.i64 @@ fun acc ->
              end_frame @@ fun _self n ->
-             let* _ = acc <-- I64.v 1L in
+             let* _ = acc <-- I64.one in
              let* _ =
                for_
-                 ~init:(I64.v 1L)
+                 ~init:I64.one
                  ~pred:(fun i -> I64.le i n)
-                 ~step:(fun i -> I64.add i (I64.v 1L))
+                 ~step:(fun i -> I64.add i I64.one)
                  (fun i -> acc <-- I64.mul ~*acc i)
              in
              ~*acc )))
@@ -85,10 +85,10 @@ let test_fact_with_foldi () =
           Run.(i64 @-> returning i64)
           ( end_frame @@ fun _self n ->
             foldi
-              ~init:(I64.v 1L)
+              ~init:I64.one
               ~acc:I64.one
               ~pred:(fun i _ -> I64.le i n)
-              ~step:(fun i -> I64.add i (I64.v 1L))
+              ~step:(fun i -> I64.add i I64.one)
               (fun i acc -> I64.mul acc i) ))
        [1L; 2L; 3L; 4L; 5L]
 
@@ -226,7 +226,7 @@ let for_loop start stop f =
   for_
     ~init:(I64.v start)
     ~pred:(fun i -> I64.le i (I64.v stop))
-    ~step:(fun i -> I64.add i (I64.v 1L))
+    ~step:(fun i -> I64.add i I64.one)
     f
 
 let test_array_arg () =
@@ -264,10 +264,10 @@ let test_alloca_struct_array () =
       ( local Stack.(arr Int64_pair.t (I64.v 2L)) @@ fun arr ->
         local Stack.(strct Int64_pair.r) @@ fun tmp ->
         end_frame @@ fun _self _ ->
-        let* s1 = arr.%[I64.v 0L] in
-        let* s2 = arr.%[I64.v 1L] in
+        let* s1 = arr.%[I64.zero] in
+        let* s2 = arr.%[I64.one] in
 
-        let* _ = s1.%{Int64_pair.f1} <- I64.v 1L in
+        let* _ = s1.%{Int64_pair.f1} <- I64.one in
         let* _ = s1.%{Int64_pair.f2} <- I64.v 2L in
 
         let* _ = s2.%{Int64_pair.f1} <- I64.v 3L in
@@ -276,8 +276,8 @@ let test_alloca_struct_array () =
         let* _ = tmp.%{Int64_pair.f1} <- s1.%{Int64_pair.f1} in
         let* _ = tmp.%{Int64_pair.f2} <- s1.%{Int64_pair.f2} in
 
-        let* _ = arr.%[I64.v 0L] <- s2 in
-        let* _ = arr.%[I64.v 1L] <- tmp in
+        let* _ = arr.%[I64.zero] <- s2 in
+        let* _ = arr.%[I64.one] <- tmp in
 
         let* w = s1.%{Int64_pair.f1} in
         let* x = s1.%{Int64_pair.f2} in
@@ -287,7 +287,7 @@ let test_alloca_struct_array () =
         I64.(
           eq w (I64.v 3L)
           &&& eq x (I64.v 4L)
-          &&& eq y (I64.v 1L)
+          &&& eq y I64.one
           &&& eq z (I64.v 2L)) )
   in
   Alcotest.(check bool) "alloca_struct_array" true @@ f ()
@@ -299,9 +299,9 @@ let test_alloca_struct_cst_array () =
       ( local Stack.(arr_cst Int64_pair.t 2L) @@ fun arr ->
         local Stack.(strct Int64_pair.r) @@ fun tmp ->
         end_frame @@ fun _self _ ->
-        let* s1 = arr.%[I64.v 0L] in
-        let* s2 = arr.%[I64.v 1L] in
-        let* _ = s1.%{Int64_pair.f1} <- I64.v 1L in
+        let* s1 = arr.%[I64.zero] in
+        let* s2 = arr.%[I64.one] in
+        let* _ = s1.%{Int64_pair.f1} <- I64.one in
         let* _ = s1.%{Int64_pair.f2} <- I64.v 2L in
 
         let* _ = s2.%{Int64_pair.f1} <- I64.v 3L in
@@ -310,8 +310,8 @@ let test_alloca_struct_cst_array () =
         let* _ = tmp.%{Int64_pair.f1} <- s1.%{Int64_pair.f1} in
         let* _ = tmp.%{Int64_pair.f2} <- s1.%{Int64_pair.f2} in
 
-        let* _ = arr.%[I64.v 0L] <- s2 in
-        let* _ = arr.%[I64.v 1L] <- tmp in
+        let* _ = arr.%[I64.zero] <- s2 in
+        let* _ = arr.%[I64.one] <- tmp in
 
         let* w = s1.%{Int64_pair.f1} in
         let* x = s1.%{Int64_pair.f2} in
@@ -321,7 +321,7 @@ let test_alloca_struct_cst_array () =
         I64.(
           eq w (I64.v 3L)
           &&& eq x (I64.v 4L)
-          &&& eq y (I64.v 1L)
+          &&& eq y I64.one
           &&& eq z (I64.v 2L)) )
   in
   Alcotest.(check bool) "alloca_struct_cst_array" true @@ f ()
@@ -392,11 +392,11 @@ let test_bintree () =
         let* _ = a1.%[I64.zero] <- addr_of_rec n2 in
         let* _ = a1.%[I64.one] <- addr_of_rec n3 in
         let* a2 = n2.%{Bintree.a} in
-        let* _ = a2.%[I64.v 0L] <- null_ptr Bintree.t in
-        let* _ = a2.%[I64.v 1L] <- null_ptr Bintree.t in
+        let* _ = a2.%[I64.zero] <- null_ptr Bintree.t in
+        let* _ = a2.%[I64.one] <- null_ptr Bintree.t in
         let* a3 = n3.%{Bintree.a} in
-        let* _ = a3.%[I64.v 0L] <- null_ptr Bintree.t in
-        let* _ = a3.%[I64.v 1L] <- null_ptr Bintree.t in
+        let* _ = a3.%[I64.zero] <- null_ptr Bintree.t in
+        let* _ = a3.%[I64.one] <- null_ptr Bintree.t in
         let* total = call1 bintree_sum (addr_of_rec n1) in
         I64.eq total (I64.v 126L) )
   in
@@ -410,12 +410,12 @@ let test_set_cst_array_in_struct () =
         local Stack.(arr_cst (Types.ptr Bintree.t) 2L) @@ fun arr ->
         end_frame @@ fun _self _ ->
         let* a = strct.%{Bintree.a} in
-        let* _ = a.%[I64.v 0L] <- addr_of_rec strct in
-        let* _ = a.%[I64.v 1L] <- addr_of_rec strct in
-        let* _ = arr.%[I64.v 0L] <- null_ptr Bintree.t in
-        let* _ = arr.%[I64.v 1L] <- null_ptr Bintree.t in
+        let* _ = a.%[I64.zero] <- addr_of_rec strct in
+        let* _ = a.%[I64.one] <- addr_of_rec strct in
+        let* _ = arr.%[I64.zero] <- null_ptr Bintree.t in
+        let* _ = arr.%[I64.one] <- null_ptr Bintree.t in
         let* _ = strct.%{Bintree.a} <- arr in
-        is_null a.%[I64.v 0L] &&& is_null a.%[I64.v 1L] )
+        is_null a.%[I64.zero] &&& is_null a.%[I64.one] )
   in
   Alcotest.(check bool) "set_cst_array_in_struct" true @@ f ()
 
@@ -437,14 +437,14 @@ let test_set_struct_in_struct () =
       ( local Stack.(strct Bintree.r) @@ fun bintree ->
         local Stack.(strct Dummy.r) @@ fun dummy ->
         end_frame @@ fun _self _ ->
-        let* _ = bintree.%{Bintree.i} <- I64.v 0L in
+        let* _ = bintree.%{Bintree.i} <- I64.zero in
         let* a = bintree.%{Bintree.a} in
-        let* _ = a.%[I64.v 0L] <- null_ptr Bintree.t in
-        let* _ = a.%[I64.v 1L] <- null_ptr Bintree.t in
+        let* _ = a.%[I64.zero] <- null_ptr Bintree.t in
+        let* _ = a.%[I64.one] <- null_ptr Bintree.t in
         let* _ = dummy.%{Dummy.dummy} <- bintree in
         let* inner = dummy.%{Dummy.dummy} in
         let* a = inner.%{Bintree.a} in
-        is_null a.%[I64.v 0L] &&& is_null a.%[I64.v 1L] )
+        is_null a.%[I64.zero] &&& is_null a.%[I64.one] )
   in
   Alcotest.(check bool) "set_cst_struct_in_struct" true @@ f ()
 
@@ -467,12 +467,12 @@ let test_setaddr_struct_in_struct () =
         local Stack.(strct Dummy.r) @@ fun dummy ->
         end_frame @@ fun _self _ ->
         let* a = bintree.%{Bintree.a} in
-        let* _ = a.%[I64.v 0L] <- null_ptr Bintree.t in
-        let* _ = a.%[I64.v 1L] <- null_ptr Bintree.t in
+        let* _ = a.%[I64.zero] <- null_ptr Bintree.t in
+        let* _ = a.%[I64.one] <- null_ptr Bintree.t in
         let* _ = dummy.%{Dummy.dummy} <- addr_of_rec bintree in
         let* inner = dummy.%{Dummy.dummy} in
         let* a = ~*inner.%{Bintree.a} in
-        is_null a.%[I64.v 0L] &&& is_null a.%[I64.v 1L] )
+        is_null a.%[I64.zero] &&& is_null a.%[I64.one] )
   in
   Alcotest.(check bool) "setaddr_struct_in_struct" true (f ())
 
@@ -484,8 +484,8 @@ let test_store_struct () =
         local Stack.(arr_cst (Types.ptr Int64_pair.t) 2L) @@ fun arr ->
         local Stack.(ptr Int64_pair.t) @@ fun ptrptr ->
         end_frame @@ fun _self _ ->
-        let* _ = arr.%[I64.v 0L] <- addr_of_rec strct in
-        let* _ = ptrptr <-- arr.%[I64.v 0L] in
+        let* _ = arr.%[I64.zero] <- addr_of_rec strct in
+        let* _ = ptrptr <-- arr.%[I64.zero] in
         let* ptr = ~*ptrptr in
         let* _ = ptr <-- strct in
         let* _ = strct.%{Int64_pair.f1} <- I64.v 42L in
@@ -502,14 +502,14 @@ let test_store_cst_arr () =
         local Stack.(ptr Types.(arr_cst i64 2L)) @@ fun ptrptr ->
         end_frame (fun _self _ ->
             (* Initialize fixed array of ints *)
-            let* _ = arr.%[I64.v 0L] <- I64.v 42L in
-            let* _ = arr.%[I64.v 1L] <- I64.v 43L in
+            let* _ = arr.%[I64.zero] <- I64.v 42L in
+            let* _ = arr.%[I64.one] <- I64.v 43L in
             (* Store the address of [arr] in [ptr_arr] *)
-            let* _ = ptr_arr.%[I64.v 0L] <- addr_of_arr arr in
+            let* _ = ptr_arr.%[I64.zero] <- addr_of_arr arr in
             (* Store the contents of [ptr_arr] in [ptr_ptr] *)
-            let* _ = ptrptr <-- ptr_arr.%[I64.v 0L] in
+            let* _ = ptrptr <-- ptr_arr.%[I64.zero] in
             let* arr' = ~*(~*ptrptr) in
-            I64.(eq (v 85L) (add arr'.%[I64.v 0L] arr'.%[I64.v 1L]))) )
+            I64.(eq (v 85L) (add arr'.%[I64.zero] arr'.%[I64.one]))) )
   in
   Alcotest.(check bool) "store_cst_arr" true @@ f ()
 
@@ -551,10 +551,10 @@ let test_setaddr_struct_in_array () =
        let*:: arr' = Stack.(arr (Types.ptr Bintree.t) I64.one) in
        end_frame @@ fun _self _ ->
        let* _ = strct.%{Bintree.i} <- I64.v 33L in
-       let* _ = arr.%[I64.v 0L] <- addr_of_rec strct in
-       let* _ = arr'.%[I64.v 0L] <- addr_of_rec strct in
-       let* s' = arr.%[I64.v 0L] in
-       let* s'' = arr'.%[I64.v 0L] in
+       let* _ = arr.%[I64.zero] <- addr_of_rec strct in
+       let* _ = arr'.%[I64.zero] <- addr_of_rec strct in
+       let* s' = arr.%[I64.zero] in
+       let* s'' = arr'.%[I64.zero] in
        I64.eq strct.%{Bintree.i} ~*s'.%{Bintree.i}
        &&& I64.eq strct.%{Bintree.i} ~*s''.%{Bintree.i})
   in
@@ -565,13 +565,13 @@ let test_setaddr_array_in_array () =
     Run.run
       Run.(unit @-> returning bool)
       (let*:: arr = Stack.(arr_cst Types.i64 2L) in
-       let*:: arr_arr = Stack.(arr Types.(ptr (arr_cst i64 2L)) (I64.v 1L)) in
+       let*:: arr_arr = Stack.(arr Types.(ptr (arr_cst i64 2L)) I64.one) in
        end_frame @@ fun _self _ ->
-       let* _ = arr.%[I64.v 0L] <- I64.v 1L in
-       let* _ = arr.%[I64.v 1L] <- I64.v 2L in
-       let* _ = arr_arr.%[I64.v 0L] <- addr_of_arr arr in
-       let* a = ~*(arr_arr.%[I64.v 0L]) in
-       I64.eq a.%[I64.v 0L] (I64.v 1L) &&& I64.eq a.%[I64.v 1L] (I64.v 2L))
+       let* _ = arr.%[I64.zero] <- I64.one in
+       let* _ = arr.%[I64.one] <- I64.v 2L in
+       let* _ = arr_arr.%[I64.zero] <- addr_of_arr arr in
+       let* a = ~*(arr_arr.%[I64.zero]) in
+       I64.eq a.%[I64.zero] I64.one &&& I64.eq a.%[I64.one] (I64.v 2L))
   in
   Alcotest.(check bool) "set_cst_array_in_array" true (f ())
 
@@ -1135,7 +1135,7 @@ let dot_product =
      let* _ = sum <-- F32.v 0.0 in
      let* _ =
        for_
-         ~init:(I64.v 0L)
+         ~init:I64.zero
          ~pred:(fun i -> I64.lt i size1)
          ~step:(fun i -> I64.add i I64.one)
          (fun i ->

@@ -63,7 +63,7 @@ module Make_suplex_bigarray_struct (X : sig
 
   type c
 
-  val rel : (s, c) num_rel
+  val rel : (s, c) base_num_rel
 end) : BA_private with type elt = X.s and type c_elt = X.c = struct
   type elt = X.s
 
@@ -73,9 +73,9 @@ end) : BA_private with type elt = X.s and type c_elt = X.c = struct
 
   type c
 
-  let numty : elt numerical = Compile.numerical_of_num_rel X.rel
+  let numty : elt base_numerical = Compile.base_numerical_of_base_num_rel X.rel
 
-  let elt_ty = TNum numty
+  let elt_ty = TNum (Base_num numty)
 
   let r = Types.(empty_rec |+ field "dim" i64 |+ field "data" (arr elt_ty))
 

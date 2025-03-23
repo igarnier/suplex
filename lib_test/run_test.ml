@@ -1001,7 +1001,9 @@ let test_f32_of_f64 () =
   in
   Alcotest.(check (float 0.0)) "cast_f64_of_f32" 127.0 (f 127.0)
 
-let test_vector_reduce_i32 name op size args expected () =
+let test_vector_reduce_i32 (type dim) name op (size : dim Size.t) args expected
+    () =
+  let (module V) = make_i32_vec size in
   let mdl =
     Run.add_intrinsic Suplex_intrinsics.Vector.Reduce.(reduce op I32_num size)
     @@ fun reduce ->
@@ -1010,14 +1012,16 @@ let test_vector_reduce_i32 name op size args expected () =
       Run.(unit @-> returning i32)
       begin
         end_frame @@ fun _self _ ->
-        let* test_vec = vec (module I32) size args in
+        let* test_vec = V.v args in
         call1 reduce test_vec
       end
   in
   let main = Run.run_module ~debug:true mdl in
   Alcotest.(check int32) name expected @@ main ()
 
-let test_vector_reduce_f32 name op size args expected () =
+let test_vector_reduce_f32 (type dim) name op (size : dim Size.t) args expected
+    () =
+  let (module V) = make_f32_vec size in
   let mdl =
     Run.add_intrinsic Suplex_intrinsics.Vector.Reduce.(reduce op F32_num size)
     @@ fun reduce ->
@@ -1026,14 +1030,16 @@ let test_vector_reduce_f32 name op size args expected () =
       Run.(unit @-> returning f32)
       begin
         end_frame @@ fun _self _ ->
-        let* test_vec = vec (module F32) size args in
+        let* test_vec = V.v args in
         call1 reduce test_vec
       end
   in
   let main = Run.run_module ~debug:true mdl in
   Alcotest.(check (float 0.0001)) name expected @@ main ()
 
-let test_vector_reduce_acc_f32 name op size acc args expected () =
+let test_vector_reduce_acc_f32 (type dim) name op (size : dim Size.t) acc args
+    expected () =
+  let (module V) = make_f32_vec size in
   let mdl =
     Run.add_intrinsic
       Suplex_intrinsics.Vector.Reduce.(reduce_acc op F32_num size)
@@ -1043,7 +1049,7 @@ let test_vector_reduce_acc_f32 name op size acc args expected () =
       Run.(unit @-> returning f32)
       begin
         end_frame @@ fun _self _ ->
-        let* test_vec = vec (module F32) size args in
+        let* test_vec = V.v args in
         call2 reduce (F32.v acc) test_vec
       end
   in

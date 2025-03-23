@@ -77,7 +77,7 @@ module Vector : sig
       ('s expr -> ('s, 'len) vec expr -> 's expr) intrinsic
   end
 
-  type 'sz mask = (bool, 'sz) vec expr
+  type 'sz mask = (i1, 'sz) vec expr
 
   val vp_select :
     's base_numerical ->
@@ -103,7 +103,7 @@ module Vector : sig
     's base_numerical ->
     'len Size.t ->
     (('s, 'len) vec expr ->
-    bool expr ->
+    i1 expr ->
     'len mask ->
     i32 expr ->
     ('s, 'len) vec expr)

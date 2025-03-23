@@ -39,7 +39,7 @@ type 'a base_numerical =
   | I32_num : i32 base_numerical
   | I16_num : i16 base_numerical
   | I8_num : i8 base_numerical
-  | I1_num : bool base_numerical
+  | I1_num : i1 base_numerical
   | F64_num : f64 base_numerical
   | F32_num : f32 base_numerical
 
@@ -50,14 +50,20 @@ type 'a numerical =
       -> ('a, 'sz) vec numerical
 
 (** {2 Relationship between numerical types and OCaml values *)
+type (_, _) base_num_rel =
+  | I64_rel : (i64, int64) base_num_rel
+  | I32_rel : (i32, int32) base_num_rel
+  | I16_rel : (i16, int) base_num_rel
+  | I8_rel : (i8, int) base_num_rel
+  | I1_rel : (i1, bool) base_num_rel
+  | F64_rel : (f64, float) base_num_rel
+  | F32_rel : (f32, float) base_num_rel
+
 type (_, _) num_rel =
-  | I64_rel : (i64, int64) num_rel
-  | I32_rel : (i32, int32) num_rel
-  | I16_rel : (i16, int) num_rel
-  | I8_rel : (i8, int) num_rel
-  | I1_rel : (bool, bool) num_rel
-  | F64_rel : (f64, float) num_rel
-  | F32_rel : (f32, float) num_rel
+  | Base_rel : ('a, 'b) base_num_rel -> ('a, 'b) num_rel
+  | Vec_rel :
+      { base : ('a, 'b) base_num_rel; numel : 'sz Size.t }
+      -> (('a, 'sz) vec, 'b array) num_rel
 
 (** Classifies base numerical types into floating-point kind [`fp] or integer
     kind [`int]. *)
@@ -136,13 +142,7 @@ and _ expr =
   | String : { strz : bool; str : string } -> i8 ptr expr
   | And : bool expr * bool expr -> bool expr
   | Or : bool expr * bool expr -> bool expr
-  | I64 : int64 -> i64 expr
-  | I32 : int32 -> i32 expr
-  | I16 : int -> i16 expr
-  | I8 : int -> i8 expr
-  | I1 : bool -> bool expr
-  | F64 : float -> f64 expr
-  | F32 : float -> f32 expr
+  | Num : ('a, 'b) num_rel * 'b -> 'a expr
   | Add : 'a numerical * 'a expr * 'a expr -> 'a expr
   | Sub : 'a numerical * 'a expr * 'a expr -> 'a expr
   | Mul : 'a numerical * 'a expr * 'a expr -> 'a expr
@@ -192,7 +192,6 @@ and _ expr =
   | Free : 'a ptr expr -> unit expr
   | Free_array : ('a, [ `unk ]) arr expr -> unit expr
   | Const_array : ('s, 'o) num_rel * 'o array -> ('s, [ `cst ]) arr expr
-  | Vec : ('s, 'o) num_rel * 'sz Size.t * 'o array -> ('s, 'sz) vec expr
   | Trunc : 'a numerical * 'b numerical * 'a expr -> 'b expr
   | SExt : 'a numerical * 'b numerical * 'a expr -> 'b expr
   | ZExt : 'a numerical * 'b numerical * 'a expr -> 'b expr

@@ -111,7 +111,7 @@ module Vector = struct
         (scalar scty @-> vector scty len @-> returning (scalar scty))
   end
 
-  type 'sz mask = (bool, 'sz) vec expr
+  type 'sz mask = (i1, 'sz) vec expr
 
   let mask_type sz = vector I1_num sz
 

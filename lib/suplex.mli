@@ -47,7 +47,7 @@ type 'a base_numerical =
   | I32_num : i32 base_numerical
   | I16_num : i16 base_numerical
   | I8_num : i8 base_numerical
-  | I1_num : bool base_numerical
+  | I1_num : i1 base_numerical
   | F64_num : f64 base_numerical
   | F32_num : f32 base_numerical
 
@@ -246,6 +246,34 @@ module F64 : Numerical with type t = f64 and type v = float
 
 module F32 : Numerical with type t = f32 and type v = float
 
+val make_i64_vec :
+  'dim Size.t ->
+  (module Numerical with type t = (i64, 'dim) vec and type v = int64 array)
+
+val make_i32_vec :
+  'dim Size.t ->
+  (module Numerical with type t = (i32, 'dim) vec and type v = int32 array)
+
+val make_i16_vec :
+  'dim Size.t ->
+  (module Numerical with type t = (i16, 'dim) vec and type v = int array)
+
+val make_i8_vec :
+  'dim Size.t ->
+  (module Numerical with type t = (i8, 'dim) vec and type v = int array)
+
+val make_i1_vec :
+  'dim Size.t ->
+  (module Numerical with type t = (i1, 'dim) vec and type v = bool array)
+
+val make_f64_vec :
+  'dim Size.t ->
+  (module Numerical with type t = (f64, 'dim) vec and type v = float array)
+
+val make_f32_vec :
+  'dim Size.t ->
+  (module Numerical with type t = (f32, 'dim) vec and type v = float array)
+
 module I64_ba : BA with type elt = i64
 
 module I32_ba : BA with type elt = i32
@@ -298,13 +326,6 @@ val const_array :
   (module Numerical with type t = 't and type v = 'v) ->
   'v array ->
   ('t, [ `cst ]) arr expr
-
-(** [vec numty sz arr] is a constant vector with values specified by [arr] *)
-val vec :
-  (module Numerical with type t = 't and type v = 'v) ->
-  'a Size.t ->
-  'v array ->
-  ('t, 'a) vec expr
 
 (** [string ?strz str] constructs a constant string with contents [str]. If [z]
     is set to false, the resulting string is not zero-terminated. *)

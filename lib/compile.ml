@@ -3,7 +3,8 @@ open Syntax
 
 let sf = Printf.sprintf
 
-let base_numerical_of_num_rel : type s o. (s, o) num_rel -> s base_numerical =
+let base_numerical_of_base_num_rel : type s o.
+    (s, o) base_num_rel -> s base_numerical =
  fun rel ->
   match rel with
   | I64_rel -> I64_num
@@ -14,8 +15,10 @@ let base_numerical_of_num_rel : type s o. (s, o) num_rel -> s base_numerical =
   | F64_rel -> F64_num
   | F32_rel -> F32_num
 
-let numerical_of_num_rel : type s o. (s, o) num_rel -> s numerical =
- fun rel -> Base_num (base_numerical_of_num_rel rel)
+let numerical_of_num_rel : type s o. (s, o) num_rel -> s numerical = function
+  | Base_rel rel -> Base_num (base_numerical_of_base_num_rel rel)
+  | Vec_rel { base; numel } ->
+      Vec_num { base = base_numerical_of_base_num_rel base; numel }
 
 let cast_base_vector_type : type a b sz.
     (a, sz) vec numerical -> b base_numerical -> (b, sz) vec numerical =
@@ -305,21 +308,26 @@ let with_extended_env env bound f =
 
 exception Invalid_llvm_function of Llvm.llmodule * Llvm.llvalue
 
-let const : type s o. (s, o) num_rel -> o -> s expr =
- fun rel v ->
-  match rel with
-  | I64_rel -> I64 v
-  | I32_rel -> I32 v
-  | I16_rel -> I16 v
-  | I8_rel -> I8 v
-  | I1_rel -> I1 v
-  | F64_rel -> F64 v
-  | F32_rel -> F32 v
+let base_num base v = Num (Base_rel base, v)
 
-(* Invariant: expression of type array_cst is a pointer to the array on the LLVM side *)
+let vec_num base numel v = Num (Vec_rel { base; numel }, v)
 
-let compile_const : type s o.
-    Llvm.llcontext -> (s, o) num_rel -> o -> s typed_llvm option =
+let i64 v = base_num I64_rel v
+
+let i32 v = base_num I32_rel v
+
+let i16 v = base_num I16_rel v
+
+let i8 v = base_num I8_rel v
+
+let i1 v = base_num I1_rel v
+
+let f64 v = base_num F64_rel v
+
+let f32 v = base_num F32_rel v
+
+let compile_base_const : type s o.
+    Llvm.llcontext -> (s, o) base_num_rel -> o -> s typed_llvm option =
  fun llvm_context rel v ->
   match rel with
   | I64_rel ->
@@ -341,6 +349,36 @@ let compile_const : type s o.
   | F32_rel ->
       with_type Types.f32
       @@ Llvm.const_float (LLVM_type.float32_t llvm_context) v
+
+let compile_const : type s o.
+    Llvm.llcontext -> (s, o) num_rel -> o -> s typed_llvm option =
+ fun llvm_context rel v ->
+  match rel with
+  | Base_rel base_rel -> compile_base_const llvm_context base_rel v
+  | Vec_rel { base; numel } ->
+      if Size.to_int numel <> Array.length v then
+        Format.kasprintf
+          failwith
+          "When constructing vector: vector of values has length %d, expected \
+           %d"
+          (Array.length v)
+          (Size.to_int numel) ;
+      let values =
+        try
+          Array.map
+            (fun v ->
+              match compile_base_const llvm_context base v with
+              | None -> raise Exit
+              | Some v -> v.value)
+            v
+        with Exit ->
+          Format.kasprintf
+            failwith
+            "When constructing vector: could not compile constant"
+      in
+      with_type
+        (Types.vec (base_numerical_of_base_num_rel base) numel)
+        (Llvm.const_vector values)
 
 let rec compile : type a.
     environment -> llvm_state -> a expr -> a typed_llvm option =
@@ -377,37 +415,7 @@ let rec compile : type a.
       let* r = compile env state r in
       with_type Types.bool
       @@ Llvm.build_or l.value r.value "bool_or" (get_builder state)
-  | I64 i -> compile_const state.llvm_context I64_rel i
-  | I32 i -> compile_const state.llvm_context I32_rel i
-  | I16 i -> compile_const state.llvm_context I16_rel i
-  | I8 i -> compile_const state.llvm_context I8_rel i
-  | I1 i -> compile_const state.llvm_context I1_rel i
-  | F64 f -> compile_const state.llvm_context F64_rel f
-  | F32 f -> compile_const state.llvm_context F32_rel f
-  | Vec (num_rel, sz, values) ->
-      if Size.to_int sz <> Array.length values then
-        Format.kasprintf
-          failwith
-          "When constructing vector: vector of values has length %d, expected \
-           %d"
-          (Array.length values)
-          (Size.to_int sz) ;
-      let values =
-        try
-          Array.map
-            (fun v ->
-              match compile_const state.llvm_context num_rel v with
-              | None -> raise Exit
-              | Some v -> v.value)
-            values
-        with Exit ->
-          Format.kasprintf
-            failwith
-            "When constructing vector: could not compile constant"
-      in
-      with_type
-        (Types.vec (base_numerical_of_num_rel num_rel) sz)
-        (Llvm.const_vector values)
+  | Num (rel, v) -> compile_const state.llvm_context rel v
   | Const_array (numrel, arr) ->
       let ty =
         LLVM_type.storage_of_type
@@ -601,7 +609,7 @@ let rec compile : type a.
           "ptr_to_int"
           (get_builder state)
       in
-      let* zero = compile env state (I64 0L) in
+      let* zero = compile env state (i64 0L) in
       let res =
         Llvm.build_icmp Llvm.Icmp.Eq ptr zero.value "isnull" (get_builder state)
       in

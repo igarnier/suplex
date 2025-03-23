@@ -26,7 +26,7 @@ type 'a base_numerical = 'a Syntax.base_numerical =
   | I32_num : i32 base_numerical
   | I16_num : i16 base_numerical
   | I8_num : i8 base_numerical
-  | I1_num : bool base_numerical
+  | I1_num : i1 base_numerical
   | F64_num : f64 base_numerical
   | F32_num : f32 base_numerical
 
@@ -112,16 +112,50 @@ module type Numerical = sig
   val one : t expr
 end
 
+let zero_of_base_num_rel : type t v. (t, v) base_num_rel -> v =
+ fun rel ->
+  match rel with
+  | I64_rel -> 0L
+  | I32_rel -> 0l
+  | I16_rel -> 0
+  | I8_rel -> 0
+  | I1_rel -> false
+  | F64_rel -> 0.0
+  | F32_rel -> 0.0
+
+let one_of_base_num_rel : type t v. (t, v) base_num_rel -> v =
+ fun rel ->
+  match rel with
+  | I64_rel -> 1L
+  | I32_rel -> 1l
+  | I16_rel -> 1
+  | I8_rel -> 1
+  | I1_rel -> true
+  | F64_rel -> 1.0
+  | F32_rel -> 1.0
+
+let zero_of_num_rel : type t v. (t, v) num_rel -> v =
+ fun rel ->
+  match rel with
+  | Base_rel rel -> zero_of_base_num_rel rel
+  | Vec_rel { base; numel } ->
+      let zero = zero_of_base_num_rel base in
+      Array.make (Size.to_int numel) zero
+
+let one_of_num_rel : type t v. (t, v) num_rel -> v =
+ fun rel ->
+  match rel with
+  | Base_rel rel -> one_of_base_num_rel rel
+  | Vec_rel { base; numel } ->
+      let one = one_of_base_num_rel base in
+      Array.make (Size.to_int numel) one
+
 module Make_numerical (Num : sig
   type t
 
   type v
 
   val rel : (t, v) num_rel
-
-  val zero : t expr
-
-  val one : t expr
 end) : Numerical with type t = Num.t and type v = Num.v = struct
   type t = Num.t
 
@@ -131,11 +165,11 @@ end) : Numerical with type t = Num.t and type v = Num.v = struct
 
   let n = Compile.numerical_of_num_rel rel
 
-  let v x = Compile.const rel x
+  let v x = Syntax.Num (rel, x)
 
-  let zero = Num.zero
+  let zero = v (zero_of_num_rel rel)
 
-  let one = Num.one
+  let one = v (one_of_num_rel rel)
 
   let add a b = Add (n, a, b)
 
@@ -154,89 +188,102 @@ end) : Numerical with type t = Num.t and type v = Num.v = struct
   let eq a b = Eq (n, a, b)
 end
 
-module I64 = Make_numerical (struct
-  type t = i64
+(* Specialize [Make_numerical] to base numerical types. *)
+module Make_base_numerical (Base : sig
+  type t
 
-  type v = int64
+  type v
 
-  let v x : t expr = I64 x
+  val rel : (t, v) base_num_rel
+end) =
+Make_numerical (struct
+  type t = Base.t
 
-  let rel = I64_rel
+  type v = Base.v
 
-  let zero = v 0L
-
-  let one = v 1L
+  let rel = Base_rel Base.rel
 end)
 
-module I32 = Make_numerical (struct
-  type t = i32
+module type Base_num_rel = sig
+  type t
 
-  type v = int32
+  type v
 
-  let v x : t expr = I32 x
+  val rel : (t, v) base_num_rel
+end
 
-  let rel = I32_rel
+let module_of_num_rel : type t v.
+    (t, v) base_num_rel -> (module Base_num_rel with type t = t and type v = v)
+    =
+ fun rel ->
+  (module struct
+    type nonrec t = t
 
-  let zero = v 0l
+    type nonrec v = v
 
-  let one = v 1l
+    let rel = rel
+  end)
+
+module I64 = Make_base_numerical ((val module_of_num_rel I64_rel))
+
+module I32 = Make_base_numerical ((val module_of_num_rel I32_rel))
+
+module I16 = Make_base_numerical ((val module_of_num_rel I16_rel))
+
+module I8 = Make_base_numerical ((val module_of_num_rel I8_rel))
+
+module I1 = Make_base_numerical ((val module_of_num_rel I1_rel))
+
+module F64 = Make_base_numerical ((val module_of_num_rel F64_rel))
+
+module F32 = Make_base_numerical ((val module_of_num_rel F32_rel))
+
+module Make_vec (Rel : sig
+  type t
+
+  type v
+
+  val rel : (t, v) base_num_rel
+end) (Dim : sig
+  type dim
+
+  val dim : dim Size.t
+end) =
+Make_numerical (struct
+  type t = (Rel.t, Dim.dim) vec
+
+  type v = Rel.v array
+
+  let rel = Vec_rel { base = Rel.rel; numel = Dim.dim }
 end)
 
-module I16 = Make_numerical (struct
-  type t = i16
+let make_vec_from_rel (type t v dim) (dim : dim Size.t)
+    (rel : (t, v) base_num_rel) :
+    (module Numerical with type t = (t, dim) vec and type v = v array) =
+  let module R =
+    Make_vec
+      ((val module_of_num_rel rel))
+      (struct
+        type nonrec dim = dim
 
-  type v = int
+        let dim = dim
+      end)
+  in
+  (module R)
 
-  let v x : t expr = I16 x
+let make_i64_vec dim = make_vec_from_rel dim I64_rel
 
-  let rel = I16_rel
+let make_i32_vec dim = make_vec_from_rel dim I32_rel
 
-  let zero = v 0
+let make_i16_vec dim = make_vec_from_rel dim I16_rel
 
-  let one = v 1
-end)
+let make_i8_vec dim = make_vec_from_rel dim I8_rel
 
-module I8 = Make_numerical (struct
-  type t = i8
+let make_i1_vec dim = make_vec_from_rel dim I1_rel
 
-  type v = int
+let make_f64_vec dim = make_vec_from_rel dim F64_rel
 
-  let v x : t expr = I8 x
-
-  let rel = I8_rel
-
-  let zero = v 0
-
-  let one = v 1
-end)
-
-module F64 = Make_numerical (struct
-  type t = f64
-
-  type v = float
-
-  let v x : t expr = F64 x
-
-  let rel = F64_rel
-
-  let zero = v 0.0
-
-  let one = v 1.0
-end)
-
-module F32 = Make_numerical (struct
-  type t = f32
-
-  type v = float
-
-  let v x : t expr = F32 x
-
-  let rel = F32_rel
-
-  let zero = v 0.0
-
-  let one = v 1.0
-end)
+let make_f32_vec dim = make_vec_from_rel dim F32_rel
 
 module type BA = Run.BA
 
@@ -280,10 +327,6 @@ let ff = False
 let const_array (type t v) (module N : Numerical with type t = t and type v = v)
     arr =
   Const_array (N.rel, arr)
-
-let vec (type t v) (module N : Numerical with type t = t and type v = v) len arr
-    =
-  Vec (N.rel, len, arr)
 
 let string ?(strz = false) str = String { strz; str }
 

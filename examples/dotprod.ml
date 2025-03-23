@@ -18,7 +18,7 @@ let dot_product_ocaml (arr1 : (float, float32_elt, c_layout) Array1.t)
     !sum
 
 let dot_product_vanilla =
-  Run.run
+  Run.jit
     ~cfg:Llvm_executionengine.{ default_compiler_options with opt_level = 3 }
     ~debug:true
     Run.(bigarray_f32 @-> bigarray_f32 @-> returning f32)
@@ -64,7 +64,7 @@ let dot_product_fma =
             let* v2 = data2.%[i] in
             call3 fma acc v1 v2) )
   in
-  Run.run_module
+  Run.jit_module
     ~cfg:Llvm_executionengine.{ default_compiler_options with opt_level = 3 }
     ~debug:true
     mdl

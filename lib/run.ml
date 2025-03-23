@@ -555,7 +555,7 @@ let add_fundecl name (Fn rel as fn_rel) body mdl =
 
 let add_intrinsic intrinsic mdl = Add_intrinsic { intrinsic; mdl }
 
-let run_module : type s.
+let jit_module : type s.
     ?debug:bool -> ?cfg:cfg -> ?state:Compile.llvm_state -> s module_ -> s =
  fun ?(debug = false)
      ?(cfg = Llvm_executionengine.default_compiler_options)
@@ -564,7 +564,7 @@ let run_module : type s.
   assert (Llvm_executionengine.initialize ()) ;
   let engine = Llvm_executionengine.create ~options:cfg state.llvm_module in
   (* let fpm = Llvm.PassManager.create () in *)
-  (* ignore (Llvm.PassManager.run_module state.llvm_module fpm) ; *)
+  (* ignore (Llvm.PassManager.jit_module state.llvm_module fpm) ; *)
   let roots = ref List.[] in
   let rec loop : type s. s module_ -> environment -> s * string * environment =
    fun mdl env ->
@@ -626,10 +626,10 @@ let run_module : type s.
     !roots ;
   res
 
-let run_program (type s tdom trange) ?debug ?cfg ?state
+let jit_program (type s tdom trange) ?debug ?cfg ?state
     (rel : (s, tdom -> trange) fn_rel) (fdecl : s fundecl) : tdom -> trange =
-  run_module ?debug ?cfg ?state (Main { fdecl; rel })
+  jit_module ?debug ?cfg ?state (Main { fdecl; rel })
 
-let run ?debug ?cfg ?(fname = "main") (Fn rel as fn_rel) body =
+let jit ?debug ?cfg ?(fname = "main") (Fn rel as fn_rel) body =
   let sg = prototype_of_rel rel in
-  run_program ?debug ?cfg fn_rel { name = fname; sg; body }
+  jit_program ?debug ?cfg fn_rel { name = fname; sg; body }

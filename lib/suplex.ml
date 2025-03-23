@@ -597,11 +597,11 @@ module Run = struct
 
   let main = Run.main
 
-  let run_module = Run.run_module
+  let jit_module = Run.jit_module
 
-  let run_program = Run.run_program
+  let jit_program = Run.jit_program
 
-  let run = Run.run
+  let jit = Run.jit
 end
 
 module Externals = struct

@@ -3,7 +3,7 @@ open Suplex
 (* Passing a unit, storing it in a local and ~*ing it back doesn't fail. *)
 let test_store_unit () =
   Alcotest.(check unit) "store_unit_with_runner" ()
-  @@ (Run.run
+  @@ (Run.jit
         Run.(unit @-> returning unit)
         ( local Stack.unit @@ fun unit_ptr ->
           end_frame @@ fun _self _x ->
@@ -15,7 +15,7 @@ let test_store_unit () =
 let test_store_bool () =
   Alcotest.(check (list bool)) "store_bool" [true; false]
   @@ List.map
-       (Run.run
+       (Run.jit
           Run.(bool @-> returning bool)
           ( local Stack.bool @@ fun bool_ptr ->
             end_frame @@ fun _self x ->
@@ -32,7 +32,7 @@ let test_fact () =
     "iterative_factorial"
     (List.map fact_oracle [1L; 2L; 3L; 4L; 5L])
   @@ (List.map
-        (Run.run
+        (Run.jit
            Run.(i64 @-> returning i64)
            ( local Stack.i64 @@ fun acc ->
              end_frame @@ fun _self n ->
@@ -57,7 +57,7 @@ let test_fact_while () =
     "iterative_factorial_while"
     (List.map fact_oracle [1L; 2L; 3L; 4L; 5L])
   @@ (List.map
-        (Run.run
+        (Run.jit
            Run.(i64 @-> returning i64)
            ( local Stack.i64 @@ fun acc ->
              local Stack.i64 @@ fun i ->
@@ -81,7 +81,7 @@ let test_fact_with_foldi () =
     "iterative_factorial_foldi"
     (List.map fact_oracle [1L; 2L; 3L; 4L; 5L])
   @@ List.map
-       (Run.run
+       (Run.jit
           Run.(i64 @-> returning i64)
           ( end_frame @@ fun _self n ->
             foldi
@@ -98,7 +98,7 @@ let test_nested_switch () =
     "nested_switch"
     [0L; 0L; 42L; 1789L; -1L]
     (List.map
-       (Run.run
+       (Run.jit
           Run.(i64 @-> returning i64)
           ( local Stack.i64 @@ fun local ->
             end_frame @@ fun _self x ->
@@ -116,7 +116,7 @@ let test_nested_cond () =
     "nested_cond"
     [0L; 0L; 42L; 1789L; 42L; 1789L]
     (List.map
-       (Run.run
+       (Run.jit
           Run.(i64 @-> returning i64)
           ( local Stack.i64 @@ fun local ->
             end_frame @@ fun _self x ->
@@ -164,7 +164,7 @@ let test_struct_alloca () =
     "struct_alloca"
     [2L; 3L; 4L; 5L; 6L]
     (let f =
-       Run.run
+       Run.jit
          Run.(i64 @-> i64 @-> returning i64)
          ( local Stack.(strct Int64_pair.r) @@ fun acc ->
            end_frame @@ fun _self x y ->
@@ -179,7 +179,7 @@ let test_struct_alloca () =
 (* Pass a pair of integers as argument and sum the fields. *)
 let test_struct_arg () =
   let f =
-    Run.run
+    Run.jit
       Run.(mallocd_strct Int64_pair.r (empty |+ i64 |+ i64) @-> returning i64)
     @@ end_frame (fun _self x -> I64.add x.%{Int64_pair.f1} x.%{Int64_pair.f2})
   in
@@ -189,7 +189,7 @@ let test_struct_arg () =
 (* Test construction of nested struct. *)
 let test_nested_struct_arg () =
   let f =
-    Run.run
+    Run.jit
       Run.(
         let pair = strct Int64_pair.r (empty |+ i64 |+ i64) in
         mallocd_strct Int64_pair_pair.r (empty |+ pair |+ pair)
@@ -212,7 +212,7 @@ let test_nested_struct_arg () =
 
 let test_struct_const_init () =
   let f =
-    Run.run
+    Run.jit
       Run.(mallocd_strct Int64_pair.r (empty |+ i64 |+ i64) @-> returning i64)
       ( end_frame @@ fun _self x ->
         let* _ = x.%{Int64_pair.f1} <- I64.v 42L in
@@ -231,7 +231,7 @@ let for_loop start stop f =
 
 let test_array_arg () =
   let f =
-    Run.run
+    Run.jit
       ~fname:"array_arg"
       Run.(array_raw i64 @-> returning i64)
       ( local Stack.i64 @@ fun acc ->
@@ -245,7 +245,7 @@ let test_array_arg () =
 
 let test_cst_array_arg () =
   let f =
-    Run.run
+    Run.jit
       ~fname:"cst_array_arg"
       Run.(array 5 i64 @-> returning i64)
       ( local Stack.i64 @@ fun acc ->
@@ -259,7 +259,7 @@ let test_cst_array_arg () =
 
 let test_alloca_struct_array () =
   let f =
-    Run.run
+    Run.jit
       Run.(unit @-> returning bool)
       ( local Stack.(arr Int64_pair.t (I64.v 2L)) @@ fun arr ->
         local Stack.(strct Int64_pair.r) @@ fun tmp ->
@@ -294,7 +294,7 @@ let test_alloca_struct_array () =
 
 let test_alloca_struct_cst_array () =
   let f =
-    Run.run
+    Run.jit
       Run.(unit @-> returning bool)
       ( local Stack.(arr_cst Int64_pair.t 2L) @@ fun arr ->
         local Stack.(strct Int64_pair.r) @@ fun tmp ->
@@ -328,7 +328,7 @@ let test_alloca_struct_cst_array () =
 
 let test_alloca_fixed_size_array () =
   let f =
-    Run.run
+    Run.jit
       Run.(unit @-> returning bool)
       ( local Stack.(arr Types.(arr_cst i64 3L) (I64.v 2L)) @@ fun arr ->
         local Stack.i64 @@ fun acc ->
@@ -362,7 +362,7 @@ end
 
 let test_bintree () =
   let f =
-    Run.run
+    Run.jit
       Run.(unit @-> returning bool)
       ( local Stack.(strct Bintree.r) @@ fun n1 ->
         local Stack.(strct Bintree.r) @@ fun n2 ->
@@ -404,7 +404,7 @@ let test_bintree () =
 
 let test_set_cst_array_in_struct () =
   let f =
-    Run.run
+    Run.jit
       Run.(unit @-> returning bool)
       ( local Stack.(strct Bintree.r) @@ fun strct ->
         local Stack.(arr_cst (Types.ptr Bintree.t) 2L) @@ fun arr ->
@@ -432,7 +432,7 @@ let test_set_struct_in_struct () =
     let ((), dummy) = projs r
   end in
   let f =
-    Run.run
+    Run.jit
       Run.(unit @-> returning bool)
       ( local Stack.(strct Bintree.r) @@ fun bintree ->
         local Stack.(strct Dummy.r) @@ fun dummy ->
@@ -461,7 +461,7 @@ let test_setaddr_struct_in_struct () =
     let ((), dummy) = projs r
   end in
   let f =
-    Run.run
+    Run.jit
       Run.(unit @-> returning bool)
       ( local Stack.(strct Bintree.r) @@ fun bintree ->
         local Stack.(strct Dummy.r) @@ fun dummy ->
@@ -478,7 +478,7 @@ let test_setaddr_struct_in_struct () =
 
 let test_store_struct () =
   let f =
-    Run.run
+    Run.jit
       Run.(unit @-> returning bool)
       ( local Stack.(strct Int64_pair.r) @@ fun strct ->
         local Stack.(arr_cst (Types.ptr Int64_pair.t) 2L) @@ fun arr ->
@@ -495,7 +495,7 @@ let test_store_struct () =
 
 let test_store_cst_arr () =
   let f =
-    Run.run
+    Run.jit
       Run.(unit @-> returning bool)
       ( local Stack.(arr_cst Types.i64 2L) @@ fun arr ->
         local Stack.(arr_cst Types.(ptr (arr_cst i64 2L)) 1L) @@ fun ptr_arr ->
@@ -515,7 +515,7 @@ let test_store_cst_arr () =
 
 let test_set_cst_arr () =
   let f =
-    Run.run
+    Run.jit
       Run.(unit @-> returning i64)
       (let*:: arr_cst = Stack.(arr_cst Types.i64 2L) in
        let*:: arr_cst_arr = Stack.(arr Types.(arr_cst i64 2L) (I64.v 3L)) in
@@ -544,7 +544,7 @@ let test_set_cst_arr () =
 
 let test_setaddr_struct_in_array () =
   let f =
-    Run.run
+    Run.jit
       Run.(unit @-> returning bool)
       (let*:: strct = Stack.(strct Bintree.r) in
        let*:: arr = Stack.(arr_cst (Types.ptr Bintree.t) 1L) in
@@ -562,7 +562,7 @@ let test_setaddr_struct_in_array () =
 
 let test_setaddr_array_in_array () =
   let f =
-    Run.run
+    Run.jit
       Run.(unit @-> returning bool)
       (let*:: arr = Stack.(arr_cst Types.i64 2L) in
        let*:: arr_arr = Stack.(arr Types.(ptr (arr_cst i64 2L)) I64.one) in
@@ -592,7 +592,7 @@ let test_record_copy () =
     let (((((((), unit), bool), ptr), int), strct), arr) = projs r
   end in
   let f =
-    Run.run
+    Run.jit
       Run.(unit @-> returning bool)
       (let*:: p = Stack.(strct Int64_pair.r) in
        let*:: arr = Stack.(arr_cst Types.i64 2L) in
@@ -630,7 +630,7 @@ let test_record_copy () =
 
 let test_fail () =
   let f =
-    Run.run
+    Run.jit
       Run.(unit @-> returning unit)
       (end_frame @@ fun _self _arg -> fail "test_fail")
   in
@@ -638,7 +638,7 @@ let test_fail () =
 
 let test_fail_branch1 () =
   let f =
-    Run.run
+    Run.jit
       Run.(bool @-> returning unit)
       (end_frame @@ fun _self arg -> if_ arg unit (fail "false"))
   in
@@ -647,7 +647,7 @@ let test_fail_branch1 () =
 
 let test_fail_branch2 () =
   let f =
-    Run.run
+    Run.jit
       Run.(bool @-> returning unit)
       (end_frame @@ fun _self arg -> if_ arg (fail "true") unit)
   in
@@ -655,7 +655,7 @@ let test_fail_branch2 () =
 
 let test_fail_branch3 () =
   let f =
-    Run.run
+    Run.jit
       Run.(bool @-> returning unit)
       (end_frame @@ fun _self arg -> if_ arg (fail "true") (fail "false"))
   in
@@ -664,7 +664,7 @@ let test_fail_branch3 () =
 (* Nested switches *)
 let test_switch_with_fail () =
   let f =
-    Run.run
+    Run.jit
       Run.(i64 @-> returning i64)
       ( end_frame @@ fun _self x ->
         switch x [(0L, I64.zero); (5L, I64.one)] ~default:(fail "default") )
@@ -675,7 +675,7 @@ let test_switch_with_fail () =
 (* Nested switches *)
 let test_switch_all_fail () =
   let f =
-    Run.run
+    Run.jit
       Run.(i64 @-> returning i64)
       ( end_frame @@ fun _self x ->
         switch x [(0L, fail "0"); (5L, fail "1")] ~default:(fail "default") )
@@ -701,7 +701,7 @@ let test_bigarray : type ba s o.
      v
      expected ->
   let f =
-    Run.run
+    Run.jit
       Run.(rel @-> returning retrel)
       ( end_frame @@ fun _self arg ->
         let* dim = arg.%{BA.dim} in
@@ -795,7 +795,7 @@ let test_bigarray_f32 () =
 
 let test_malloc () =
   let f =
-    Run.run
+    Run.jit
       Run.(unit @-> returning i64)
       ( end_frame @@ fun _self _arg ->
         let module PP = Int64_pair_pair in
@@ -820,7 +820,7 @@ let test_malloc () =
 
 let test_malloc_array () =
   let f =
-    Run.run
+    Run.jit
       Run.(unit @-> returning i64)
       (let*:: acc = Stack.i64 in
        end_frame @@ fun _self _arg ->
@@ -884,12 +884,12 @@ let test_opaque_mallocd_strct () =
         sum
       end
   in
-  let ((main, _sum), _alloc) = Run.run_module mdl in
+  let ((main, _sum), _alloc) = Run.jit_module mdl in
   Alcotest.(check int64) "test_opaque" 42L @@ main ()
 
 let test_global_array () =
   let f =
-    Run.run
+    Run.jit
       Run.(unit @-> returning f64)
       (let*:: acc = Stack.f64 in
        end_frame @@ fun _self _arg ->
@@ -906,7 +906,7 @@ let test_global_array () =
 
 let test_trunc_64_to_32 () =
   let f =
-    Run.run
+    Run.jit
       ~debug:true
       Run.(i64 @-> returning i32)
       (end_frame @@ fun _self x -> trunc I64.n I32.n x)
@@ -915,7 +915,7 @@ let test_trunc_64_to_32 () =
 
 let test_trunc_64_to_8 () =
   let f =
-    Run.run
+    Run.jit
       Run.(i64 @-> returning i8)
       (end_frame @@ fun _self x -> trunc I64.n I8.n x)
   in
@@ -923,7 +923,7 @@ let test_trunc_64_to_8 () =
 
 let test_sext () =
   let f =
-    Run.run
+    Run.jit
       Run.(i8 @-> returning i32)
       (end_frame @@ fun _self x -> sext I8.n I32.n x)
   in
@@ -931,7 +931,7 @@ let test_sext () =
 
 let test_zext () =
   let f =
-    Run.run
+    Run.jit
       Run.(i8 @-> returning i64)
       (end_frame @@ fun _self x -> zext I8.n I64.n x)
   in
@@ -939,7 +939,7 @@ let test_zext () =
 
 let test_si_to_f32 () =
   let f =
-    Run.run
+    Run.jit
       Run.(i8 @-> returning f32)
       (end_frame @@ fun _self x -> to_f32 i8_num x)
   in
@@ -947,7 +947,7 @@ let test_si_to_f32 () =
 
 let test_f64_to_f32 () =
   let f =
-    Run.run
+    Run.jit
       Run.(f64 @-> returning f32)
       (end_frame @@ fun _self x -> to_f32 f64_num x)
   in
@@ -955,7 +955,7 @@ let test_f64_to_f32 () =
 
 let test_si_to_f64 () =
   let f =
-    Run.run
+    Run.jit
       Run.(i8 @-> returning f64)
       (end_frame @@ fun _self x -> to_f64 i8_num x)
   in
@@ -963,7 +963,7 @@ let test_si_to_f64 () =
 
 let test_f32_to_f64 () =
   let f =
-    Run.run
+    Run.jit
       Run.(f32 @-> returning f64)
       (end_frame @@ fun _self x -> to_f64 f32_num x)
   in
@@ -971,7 +971,7 @@ let test_f32_to_f64 () =
 
 let test_si_of_f32 () =
   let f =
-    Run.run
+    Run.jit
       Run.(f32 @-> returning i8)
       (end_frame @@ fun _self x -> of_f32 i8_num x)
   in
@@ -979,7 +979,7 @@ let test_si_of_f32 () =
 
 let test_si_of_f64 () =
   let f =
-    Run.run
+    Run.jit
       Run.(f64 @-> returning i8)
       (end_frame @@ fun _self x -> of_f64 i8_num x)
   in
@@ -987,7 +987,7 @@ let test_si_of_f64 () =
 
 let test_f64_of_f32 () =
   let f =
-    Run.run
+    Run.jit
       Run.(f32 @-> returning f64)
       (end_frame @@ fun _self x -> of_f32 f64_num x)
   in
@@ -995,7 +995,7 @@ let test_f64_of_f32 () =
 
 let test_f32_of_f64 () =
   let f =
-    Run.run
+    Run.jit
       Run.(f64 @-> returning f32)
       (end_frame @@ fun _self x -> of_f64 f32_num x)
   in
@@ -1016,7 +1016,7 @@ let test_vector_reduce_i32 (type dim) name op (size : dim Size.t) args expected
         call1 reduce test_vec
       end
   in
-  let main = Run.run_module ~debug:true mdl in
+  let main = Run.jit_module ~debug:true mdl in
   Alcotest.(check int32) name expected @@ main ()
 
 let test_vector_reduce_f32 (type dim) name op (size : dim Size.t) args expected
@@ -1034,7 +1034,7 @@ let test_vector_reduce_f32 (type dim) name op (size : dim Size.t) args expected
         call1 reduce test_vec
       end
   in
-  let main = Run.run_module ~debug:true mdl in
+  let main = Run.jit_module ~debug:true mdl in
   Alcotest.(check (float 0.0001)) name expected @@ main ()
 
 let test_vector_reduce_acc_f32 (type dim) name op (size : dim Size.t) acc args
@@ -1053,7 +1053,7 @@ let test_vector_reduce_acc_f32 (type dim) name op (size : dim Size.t) acc args
         call2 reduce (F32.v acc) test_vec
       end
   in
-  let main = Run.run_module ~debug:true mdl in
+  let main = Run.jit_module ~debug:true mdl in
   Alcotest.(check (float 0.0001)) name expected @@ main ()
 
 type 'v case =
@@ -1126,7 +1126,7 @@ let vector_reduce_f32_acc_cases =
     ops
 
 let dot_product =
-  Run.run
+  Run.jit
     Run.(bigarray_f32 @-> bigarray_f32 @-> returning f32)
     (let*:: sum = Stack.f32 in
      end_frame @@ fun _self vec1 vec2 ->

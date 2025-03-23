@@ -1,0 +1,4 @@
+(executable
+  (name dotprod)
+  (libraries suplex suplex-intrinsics)
+)

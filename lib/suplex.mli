@@ -51,7 +51,7 @@ type 'a base_numerical =
   | F64_num : f64 base_numerical
   | F32_num : f32 base_numerical
 
-type 'a numerical = private
+type 'a numerical =
   | Base_num : 'a base_numerical -> 'a numerical
   | Vec_num :
       { base : 'a base_numerical; numel : 'sz Size.t }
@@ -119,6 +119,8 @@ module Types : sig
   val field_eq : ('a, 'b) field -> ('c, 'd) field -> bool
 
   val field_index : ('a, 'u) field -> 'u typ -> (int option, string) Result.t
+
+  val base_num : 'a base_numerical -> 'a typ
 
   val unit : unit typ
 
@@ -302,7 +304,7 @@ val scalar : 'a base_numerical -> 'a typ
 
 val vector : 'a base_numerical -> 'sz Size.t -> ('a, 'sz) vec typ
 
-val base_numerical_kind : 'a. 'a base_numerical -> [ `fp | `int ]
+val base_numerical_kind : 'a base_numerical -> [ `fp | `int ]
 
 val ( @-> ) : 'a typ -> 'b fn -> ('a expr -> 'b) fn
 

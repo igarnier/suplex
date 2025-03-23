@@ -1,5 +1,61 @@
 open Suplex
 
+module type Float_intrinsics = sig
+  type t
+
+  val sqrt : (t expr -> t expr) intrinsic
+
+  val powi : (t expr -> i32 expr -> t expr) intrinsic
+
+  val sin : (t expr -> t expr) intrinsic
+
+  val cos : (t expr -> t expr) intrinsic
+
+  val tan : (t expr -> t expr) intrinsic
+
+  val asin : (t expr -> t expr) intrinsic
+
+  val acos : (t expr -> t expr) intrinsic
+
+  val atan : (t expr -> t expr) intrinsic
+
+  val atan2 : (t expr -> t expr -> t expr) intrinsic
+
+  val sinh : (t expr -> t expr) intrinsic
+
+  val cosh : (t expr -> t expr) intrinsic
+
+  val tanh : (t expr -> t expr) intrinsic
+
+  val pow : (t expr -> t expr -> t expr) intrinsic
+
+  val exp : (t expr -> t expr) intrinsic
+
+  val exp2 : (t expr -> t expr) intrinsic
+
+  val exp10 : (t expr -> t expr) intrinsic
+
+  val log : (t expr -> t expr) intrinsic
+
+  val log10 : (t expr -> t expr) intrinsic
+
+  val fma : (t expr -> t expr -> t expr -> t expr) intrinsic
+
+  val log2 : (t expr -> t expr) intrinsic
+end
+
+module F64 : sig
+  include module type of F64
+
+  include Float_intrinsics with type t := f64
+end
+
+module F32 : sig
+  include module type of F32
+
+  include Float_intrinsics with type t := f32
+end
+
 module Vector : sig
   module Reduce : sig
     (** [op] describes reduction operations. *)
@@ -77,46 +133,46 @@ module Vector : sig
       ('s expr -> ('s, 'len) vec expr -> 's expr) intrinsic
   end
 
-  type 'sz mask = (i1, 'sz) vec expr
+  (* type 'sz mask = (i1, 'sz) vec expr *)
 
-  val vp_select :
-    's base_numerical ->
-    'len Size.t ->
-    ('len mask ->
-    ('s, 'len) vec expr ->
-    ('s, 'len) vec expr ->
-    i32 expr ->
-    ('s, 'len) vec expr)
-    intrinsic
+  (* val vp_select : *)
+  (*   's base_numerical -> *)
+  (*   'len Size.t -> *)
+  (*   ('len mask -> *)
+  (*   ('s, 'len) vec expr -> *)
+  (*   ('s, 'len) vec expr -> *)
+  (*   i32 expr -> *)
+  (*   ('s, 'len) vec expr) *)
+  (*   intrinsic *)
 
-  val vp_merge :
-    's base_numerical ->
-    'len Size.t ->
-    ('len mask ->
-    ('s, 'len) vec expr ->
-    ('s, 'len) vec expr ->
-    ('s, 'len) vec expr)
-    intrinsic
+  (* val vp_merge : *)
+  (*   's base_numerical -> *)
+  (*   'len Size.t -> *)
+  (*   ('len mask -> *)
+  (*   ('s, 'len) vec expr -> *)
+  (*   ('s, 'len) vec expr -> *)
+  (*   ('s, 'len) vec expr) *)
+  (*   intrinsic *)
 
-  val vp_unop :
-    string ->
-    's base_numerical ->
-    'len Size.t ->
-    (('s, 'len) vec expr ->
-    i1 expr ->
-    'len mask ->
-    i32 expr ->
-    ('s, 'len) vec expr)
-    intrinsic
+  (* val vp_unop : *)
+  (*   string -> *)
+  (*   's base_numerical -> *)
+  (*   'len Size.t -> *)
+  (*   (('s, 'len) vec expr -> *)
+  (*   i1 expr -> *)
+  (*   'len mask -> *)
+  (*   i32 expr -> *)
+  (*   ('s, 'len) vec expr) *)
+  (*   intrinsic *)
 
-  val vp_binop :
-    string ->
-    'a base_numerical ->
-    'len Size.t ->
-    (('a, 'len) vec expr ->
-    ('a, 'len) vec expr ->
-    'len mask ->
-    i32 expr ->
-    ('a, 'len) vec expr)
-    intrinsic
+  (* val vp_binop : *)
+  (*   string -> *)
+  (*   'a base_numerical -> *)
+  (*   'len Size.t -> *)
+  (*   (('a, 'len) vec expr -> *)
+  (*   ('a, 'len) vec expr -> *)
+  (*   'len mask -> *)
+  (*   i32 expr -> *)
+  (*   ('a, 'len) vec expr) *)
+  (*   intrinsic *)
 end

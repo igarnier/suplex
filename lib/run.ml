@@ -562,11 +562,13 @@ let jit_module : type s.
      ?(state = Compile.new_llvm_state ())
      mdl ->
   assert (Llvm_executionengine.initialize ()) ;
-  let engine = Llvm_executionengine.create ~options:cfg state.llvm_module in
   (* let fpm = Llvm.PassManager.create () in *)
   (* ignore (Llvm.PassManager.jit_module state.llvm_module fpm) ; *)
   let roots = ref List.[] in
-  let rec loop : type s. s module_ -> environment -> s * string * environment =
+  let rec loop : type s.
+      s module_ ->
+      environment ->
+      s * string * environment * Llvm_executionengine.llexecutionengine =
    fun mdl env ->
     match mdl with
     | Main { fdecl; rel = Fn rel } -> (
@@ -577,6 +579,9 @@ let jit_module : type s.
             assert false
         | Fn_arrow (_, _) ->
             let fn_ptr_typ = Foreign.funptr (extract_ctypes_fn rel) in
+            let engine =
+              Llvm_executionengine.create ~options:cfg state.llvm_module
+            in
             let f =
               Llvm_executionengine.get_function_address
                 fdecl.name
@@ -585,13 +590,13 @@ let jit_module : type s.
             in
             let f = box_ctypes_fn rel f in
             roots := Obj.magic f :: !roots ;
-            (f, fdecl.name, env))
+            (f, fdecl.name, env, engine))
     | Add_fundecl { fdecl; rel = Fn rel; mdl } -> (
         let f = Compile.fundecl env state fdecl in
         let key = Hmap.Key.create () in
         let env = Hmap.add key f env in
         let var = Var key in
-        let (rest, main, env) = loop (mdl var) env in
+        let (rest, main, env, engine) = loop (mdl var) env in
         match rel with
         | Fn_returning _ ->
             (* Cannot be refuted because of abstract bigarray type *)
@@ -606,14 +611,14 @@ let jit_module : type s.
             in
             let f = box_ctypes_fn rel f in
             roots := Obj.magic f :: !roots ;
-            ((rest, f), main, env))
+            ((rest, f), main, env, engine))
     | Add_intrinsic { intrinsic; mdl } ->
         let key = Hmap.Key.create () in
         let env = Hmap.add key (Compile.intrinsic state intrinsic) env in
         let var = Var key in
         loop (mdl var) env
   in
-  let (res, main, _) = loop mdl Hmap.empty in
+  let (res, main, _, engine) = loop mdl Hmap.empty in
   if debug then Llvm.print_module (main ^ ".ll") state.llvm_module else () ;
   let roots_count = ref (List.length !roots) in
   List.iter

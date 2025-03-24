@@ -689,7 +689,9 @@ let rec compile : type a.
       | TRecord _ as recty -> set_field state field recty record_ptr v)
   | Cast (arr, target) ->
       let* arr = compile env state arr in
-      let target_ty = LLVM_type.storage_of_type state.llvm_context target in
+      let target_ty =
+        LLVM_type.storage_of_type state.llvm_context (TPtr target)
+      in
       let cast =
         Llvm.build_bitcast arr.value target_ty "cast" (get_builder state)
       in
@@ -1384,7 +1386,10 @@ and fundecl : type s. environment -> llvm_state -> s fundecl -> s fn typed_llvm
   if not (Llvm_analysis.verify_function fn) then (
     (match Llvm_analysis.verify_module state.llvm_module with
     | None -> ()
-    | Some reason -> Format.eprintf "Incorrect module.@.%s@." reason) ;
+    | Some reason -> begin
+        Format.eprintf "Incorrect module.@.%s@." reason ;
+        Llvm.dump_module state.llvm_module
+      end) ;
     raise (Invalid_llvm_function (state.llvm_module, fn)))
   else llfn
 

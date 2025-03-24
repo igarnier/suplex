@@ -21,7 +21,7 @@
   (name suplex)
   (public_name suplex)
   (modes native)
-  (libraries hmap llvm llvm.executionengine llvm.analysis llvm.all_backends llvm.target ctypes ctypes.foreign)
+  (libraries hmap llvm llvm.executionengine llvm.analysis llvm.all_backends llvm.target llvm.passbuilder ctypes ctypes.foreign)
   (foreign_archives externals)
   (library_flags (:include library_flags.sexp))
   (instrumentation (backend bisect_ppx))

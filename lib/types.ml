@@ -176,6 +176,8 @@ let bool = TBool
 
 let base_num n = TNum (Base_num n)
 
+let num n = TNum n
+
 let i64 = base_num I64_num
 
 let i32 = base_num I32_num

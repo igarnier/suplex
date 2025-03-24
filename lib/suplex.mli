@@ -122,6 +122,8 @@ module Types : sig
 
   val base_num : 'a base_numerical -> 'a typ
 
+  val num : 'a numerical -> 'a typ
+
   val unit : unit typ
 
   val bool : bool typ
@@ -143,6 +145,8 @@ module Types : sig
   val arr : 'a typ -> ('a, [ `unk ]) arr typ
 
   val arr_cst : 'a typ -> int64 -> ('a, [ `cst ]) arr typ
+
+  val vec : 'a base_numerical -> 'b Size.t -> ('a, 'b) vec typ
 
   val empty_rec : (unit, unit Vec.t, 'a Vec.t, 'b record) record_desc
 

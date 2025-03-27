@@ -2,3 +2,8 @@
   (name dotprod)
   (libraries suplex suplex-intrinsics)
 )
+
+(executable
+  (name matmul)
+  (libraries suplex suplex-intrinsics bigarray)
+)

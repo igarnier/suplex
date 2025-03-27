@@ -208,6 +208,8 @@ module type Numerical = sig
 
   val div : t expr -> t expr -> t expr
 
+  val rem : t expr -> t expr -> t expr
+
   val neg : t expr -> t expr
 
   val lt : t expr -> t expr -> bool expr

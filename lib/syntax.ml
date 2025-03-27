@@ -148,6 +148,7 @@ and _ expr =
   | Mul : 'a numerical * 'a expr * 'a expr -> 'a expr
   | Div : 'a numerical * 'a expr * 'a expr -> 'a expr
   | Neg : 'a numerical * 'a expr -> 'a expr
+  | Rem : 'a numerical * 'a expr * 'a expr -> 'a expr (* Remainder *)
   | Lt : 'a numerical * 'a expr * 'a expr -> bool expr
   | Le : 'a numerical * 'a expr * 'a expr -> bool expr
   | Eq : 'a numerical * 'a expr * 'a expr -> bool expr

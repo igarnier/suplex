@@ -99,6 +99,8 @@ module type Numerical = sig
 
   val div : t expr -> t expr -> t expr
 
+  val rem : t expr -> t expr -> t expr
+
   val neg : t expr -> t expr
 
   val lt : t expr -> t expr -> bool expr
@@ -186,6 +188,8 @@ end) : Numerical with type t = Num.t and type v = Num.v = struct
   let le a b = Le (n, a, b)
 
   let eq a b = Eq (n, a, b)
+
+  let rem a b = Rem (n, a, b)
 end
 
 (* Specialize [Make_numerical] to base numerical types. *)

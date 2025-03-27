@@ -547,6 +547,17 @@ let rec compile : type a.
             (get_builder state)
       in
       with_type Types.bool instr
+  | Rem (numty, a, b) -> (
+      let* a = compile env state a in
+      let* b = compile env state b in
+      let opname = Format.asprintf "%a_rem" pp_numerical numty in
+      match numerical_kind numty with
+      | `fp ->
+          with_type (TNum numty)
+          @@ Llvm.build_frem a.value b.value opname (get_builder state)
+      | `int ->
+          with_type (TNum numty)
+          @@ Llvm.build_srem a.value b.value opname (get_builder state))
   | PtrEq (l, r) ->
       let* l = compile env state l in
       let* r = compile env state r in

@@ -1,8 +1,16 @@
 open Suplex
 open Bigarray
 
+type ba32 = (float, float32_elt, c_layout) Array1.t
+
+type matrix = { ba : ba32; cols : int64; rows : int64 }
+
 (* Suplex implementation *)
-let matmul =
+let matmul a b res =
+  assert (a.cols = b.rows) ;
+  assert (a.rows = res.rows) ;
+  assert (b.cols = res.cols) ;
+
   Run.jit
     ~cfg:Llvm_executionengine.{ default_compiler_options with opt_level = 3 }
     Run.(
@@ -35,78 +43,92 @@ let matmul =
           ~pred:(fun i -> I64.lt i res_rows)
           ~step:(fun i -> I64.add i I64.one)
           (fun i ->
-            let* _ =
-              for_
-                ~init:I64.zero
-                ~pred:(fun k -> I64.lt k inner)
-                ~step:(fun k -> I64.add k I64.one)
-                (fun k ->
-                  let* a_val = a_data.%[I64.add (I64.mul i inner) k] in
-                  let* _ =
-                    for_
-                      ~init:I64.zero
-                      ~pred:(fun j -> I64.lt j res_cols)
-                      ~step:(fun j -> I64.add j I64.one)
-                      (fun j ->
-                        let* b_val = b_data.%[I64.add (I64.mul k res_cols) j] in
-                        let* res_idx = I64.add (I64.mul i res_cols) j in
-                        let* current = res.%[res_idx] in
-                        res.%[res_idx] <- F32.add current (F32.mul a_val b_val))
-                  in
-                  unit)
-            in
-            unit)
+            for_
+              ~init:I64.zero
+              ~pred:(fun k -> I64.lt k inner)
+              ~step:(fun k -> I64.add k I64.one)
+              (fun k ->
+                let* a_val = a_data.%[I64.add (I64.mul i inner) k] in
+                for_
+                  ~init:I64.zero
+                  ~pred:(fun j -> I64.lt j res_cols)
+                  ~step:(fun j -> I64.add j I64.one)
+                  (fun j ->
+                    let* b_val = b_data.%[I64.add (I64.mul k res_cols) j] in
+                    let* res_idx = I64.add (I64.mul i res_cols) j in
+                    let* current = res.%[res_idx] in
+                    res.%[res_idx] <- F32.add current (F32.mul a_val b_val))))
       in
       unit )
-
-(* Test helper *)
-let test_matmul () =
-  let a = Array1.of_array float32 c_layout [| 1.; 2.; 3.; 4. |] in
-  let b = Array1.of_array float32 c_layout [| 5.; 6.; 7.; 8. |] in
-  let res = Array1.of_array float32 c_layout [| 0.0; 0.0; 0.0; 0.0 |] in
-  let () = matmul a 2L 2L b 2L 2L res in
-  let rows = 2L in
-  let cols = 2L in
-  Printf.printf "Result matrix (%Ldx%Ld):\n" rows cols ;
-  for i = 0 to Int64.to_int rows - 1 do
-    for j = 0 to Int64.to_int cols - 1 do
-      Printf.printf "%.1f " res.{(i * Int64.to_int cols) + j}
-    done ;
-    print_newline ()
-  done
+    a.ba
+    a.rows
+    a.cols
+    b.ba
+    b.rows
+    b.cols
+    res.ba
 
 (* OCaml reference implementation *)
-let ocaml_matmul a_data a_rows a_cols b_data _b_rows b_cols res =
-  let res_rows = Int64.to_int a_rows in
-  let res_cols = Int64.to_int b_cols in
-  let inner = Int64.to_int a_cols in
+let ocaml_matmul a b res =
+  assert (a.cols = b.rows) ;
+  assert (a.rows = res.rows) ;
+  assert (b.cols = res.cols) ;
+  let res_rows = Int64.to_int res.rows in
+  let res_cols = Int64.to_int res.cols in
+  let inner = Int64.to_int a.cols in
+  let a_data = a.ba in
+  let b_data = b.ba in
+  let r_data = res.ba in
 
   for i = 0 to res_rows - 1 do
     for k = 0 to inner - 1 do
       let a_val = a_data.{(i * inner) + k} in
       for j = 0 to res_cols - 1 do
         let b_val = b_data.{(k * res_cols) + j} in
-        res.{(i * res_cols) + j} <- res.{(i * res_cols) + j} +. (a_val *. b_val)
+        r_data.{(i * res_cols) + j} <-
+          r_data.{(i * res_cols) + j} +. (a_val *. b_val)
       done
     done
-  done ;
-
-  (res, a_rows, b_cols)
+  done
 
 (* Benchmarking function *)
 let benchmark () =
-  let size = 64 in
+  let size = 1024 in
   (* Test with 64x64 matrices *)
-  let data =
-    Array.init (size * size) (fun i -> float_of_int (i + 1) /. 100.0)
+  let mat1 =
+    { rows = Int64.of_int size;
+      cols = Int64.of_int size;
+      ba =
+        Array1.of_array
+          Float32
+          C_layout
+          (Array.init (size * size) (fun i -> float_of_int i /. 100.0))
+    }
   in
-  let mat =
-    (Array1.of_array float32 c_layout data, Int64.of_int size, Int64.of_int size)
+  let mat2 =
+    { rows = Int64.of_int size;
+      cols = Int64.of_int size;
+      ba =
+        Array1.of_array
+          Float32
+          C_layout
+          (Array.init (size * size) (fun i -> float_of_int (i + 1) /. 100.0))
+    }
+  in
+  let res =
+    { rows = Int64.of_int size;
+      cols = Int64.of_int size;
+      ba =
+        Array1.of_array
+          Float32
+          C_layout
+          (Array.init (size * size) (fun _i -> 0.0))
+    }
   in
 
   let time fn =
     let start = Unix.gettimeofday () in
-    let _ = fn mat mat in
+    let _ = fn mat1 mat2 res in
     Unix.gettimeofday () -. start
   in
 
@@ -118,7 +140,4 @@ let benchmark () =
   Printf.printf "Suplex implementation: %f seconds\n" suplex_time ;
   Printf.printf "Speedup: %.2fx\n" (ocaml_time /. suplex_time)
 
-let () =
-  test_matmul () ;
-  print_newline () ;
-  benchmark ()
+let () = benchmark ()

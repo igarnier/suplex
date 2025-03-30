@@ -5,6 +5,11 @@ type ba32 = (float, float32_elt, c_layout) Array1.t
 
 type matrix = { ba : ba32; cols : int64; rows : int64 }
 
+let succ = I64.add I64.one
+
+let for_each start stop =
+  for_ ~init:start ~pred:(fun i -> I64.lt i stop) ~step:succ
+
 (* Suplex implementation *)
 let matmul a b res =
   assert (a.cols = b.rows) ;
@@ -18,8 +23,6 @@ let matmul a b res =
       @-> bigarray_f32 @-> returning unit)
     ( end_frame
     @@ fun _self a_data a_rows a_cols b_data _b_rows b_cols out_data ->
-      let* res_rows = a_rows in
-      let* res_cols = b_cols in
       let* inner = a_cols in
 
       (* Allocate result matrix *)
@@ -27,39 +30,32 @@ let matmul a b res =
       let* b_data = b_data.%{F32_ba.data} in
       let* res = out_data.%{F32_ba.data} in
 
-      (* Initialize result to zero *)
-      let* _ =
-        for_
-          ~init:I64.zero
-          ~pred:(fun i -> I64.lt i (I64.mul res_rows res_cols))
-          ~step:(fun i -> I64.add i I64.one)
-          (fun i -> res.%[i] <- F32.zero)
-      in
+      let get_a_elt row col = a_data.%[I64.(add col (mul row inner))] in
+      let get_b_elt row col = b_data.%[I64.(add col (mul row b_cols))] in
 
-      (* Matrix multiplication *)
-      let* _ =
+      (* Initialize result to zero *)
+      (* let* _ = *)
+      (*   for_ *)
+      (*     ~init:I64.zero *)
+      (*     ~pred:(fun i -> I64.lt i (I64.mul res_rows res_cols)) *)
+      (*     ~step:(fun i -> I64.add i I64.one) *)
+      (*     (fun i -> res.%[i] <- F32.zero) *)
+      (* in *)
+      let* block_size = I64.v 8L in
+      let for_each start stop =
         for_
-          ~init:I64.zero
-          ~pred:(fun i -> I64.lt i res_rows)
-          ~step:(fun i -> I64.add i I64.one)
-          (fun i ->
-            for_
-              ~init:I64.zero
-              ~pred:(fun k -> I64.lt k inner)
-              ~step:(fun k -> I64.add k I64.one)
-              (fun k ->
-                let* a_val = a_data.%[I64.add (I64.mul i inner) k] in
-                for_
-                  ~init:I64.zero
-                  ~pred:(fun j -> I64.lt j res_cols)
-                  ~step:(fun j -> I64.add j I64.one)
-                  (fun j ->
-                    let* b_val = b_data.%[I64.add (I64.mul k res_cols) j] in
-                    let* res_idx = I64.add (I64.mul i res_cols) j in
-                    let* current = res.%[res_idx] in
-                    res.%[res_idx] <- F32.add current (F32.mul a_val b_val))))
+          ~init:start
+          ~pred:(fun i -> I64.lt i stop)
+          ~step:(I64.add block_size)
       in
-      unit )
+      for_each I64.zero b_cols (fun i ->
+          for_each I64.zero a_rows (fun j ->
+              let* res_idx = I64.add (I64.mul j b_cols) i in
+              for_each I64.zero inner (fun k ->
+                  let* a_val = get_a_elt j k in
+                  let* b_val = get_b_elt j i in
+                  let* current = res.%[res_idx] in
+                  res.%[res_idx] <- F32.add current (F32.mul a_val b_val)))) )
     a.ba
     a.rows
     a.cols
@@ -133,8 +129,7 @@ let benchmark () =
   in
 
   let ocaml_time = time ocaml_matmul in
-  let suplex_time = 0.0 in
-  (* let suplex_time = time matmul in *)
+  let suplex_time = time matmul in
 
   Printf.printf "OCaml implementation: %f seconds\n" ocaml_time ;
   Printf.printf "Suplex implementation: %f seconds\n" suplex_time ;

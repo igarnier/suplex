@@ -414,6 +414,9 @@ let rec compile : type a.
       match Hmap.find v env with
       | None -> Format.kasprintf failwith "Variable not found"
       | Some _ as res -> res)
+  | Undef ty ->
+      let llvm_ty = LLVM_type.storage_of_type state.llvm_context ty in
+      with_type ty (Llvm.undef llvm_ty)
   | Let (bound, body) ->
       let* bound = compile env state bound in
       with_extended_env env bound (fun env bound ->

@@ -515,6 +515,8 @@ let mask size mask =
 
 let shuffle lhs rhs mask = Shuffle (lhs, rhs, mask)
 
+let undef ty = Undef ty
+
 let rec block cmds =
   match cmds with
   | [] -> unit

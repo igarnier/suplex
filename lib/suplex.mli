@@ -510,6 +510,9 @@ val mask : 'sz Size.t -> int array -> 'sz mask
 val shuffle :
   ('a, _) vec expr -> ('a, _) vec expr -> 'sz mask -> ('a, 'sz) vec expr
 
+(** Undefined value of a given type. *)
+val undef : 'a typ -> 'a expr
+
 (** [block stmts] is a block of statements [stmts]. *)
 val block : unit expr list -> unit expr
 

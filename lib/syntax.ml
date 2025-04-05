@@ -135,6 +135,7 @@ and 'a addressable =
 
 and _ expr =
   | Var : 'a typed_llvm Hmap.key -> 'a expr
+  | Undef : 'a typ -> 'a expr
   | Let : 'a expr * ('a expr -> 'b expr) -> 'b expr
   | Unit : unit expr
   | True : bool expr

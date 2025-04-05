@@ -96,6 +96,8 @@ type ('a, 'b) args
 
 type ('s, 'o) num_rel
 
+type 'sz mask
+
 module Types : sig
   type nonrec 'a typ = 'a typ
 
@@ -500,6 +502,14 @@ val vec_of_f32 : 'a base_numerical -> (f32, 'sz) vec expr -> ('a, 'sz) vec expr
 *)
 val vec_of_f64 : 'a base_numerical -> (f64, 'sz) vec expr -> ('a, 'sz) vec expr
 
+(** [mask sz array] creates a mask with prescribed size.
+
+    @raise Invalid_argument if [Size.to_int sz <> Array.length array] *)
+val mask : 'sz Size.t -> int array -> 'sz mask
+
+val shuffle :
+  ('a, _) vec expr -> ('a, _) vec expr -> 'sz mask -> ('a, 'sz) vec expr
+
 (** [block stmts] is a block of statements [stmts]. *)
 val block : unit expr list -> unit expr
 
@@ -627,6 +637,9 @@ module Run : sig
   (** Arguments of type [i8], passed as [int] values. *)
   val i8 : (i8 expr, int) rel
 
+  (** Arguments of type [i1], passed as [bool] values. *)
+  val i1 : (i1 expr, bool) rel
+
   (** Arguments of type [f64], passed as [float] values. *)
   val f64 : (f64 expr, float) rel
 
@@ -673,10 +686,10 @@ module Run : sig
   (** Pointer to bytes arrays, passed as string values. *)
   val string : (i8 ptr expr, string) rel
 
-  (** Arrays of statically unknown sizes, passed as [Seq.t] iterators. *)
+  (** Array of statically unknown size, passed as [Seq.t] iterators. *)
   val array_raw : ('a expr, 'b) rel -> (('a, [ `unk ]) arr expr, 'b Seq.t) rel
 
-  (** Arrays of statically known sizes, passed as [Seq.t] iterators. *)
+  (** Array of statically known size, passed as [Seq.t] iterators. *)
   val array :
     int -> ('a expr, 'b) rel -> (('a, [ `cst ]) arr expr, 'b Seq.t) rel
 

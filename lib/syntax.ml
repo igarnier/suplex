@@ -204,6 +204,9 @@ and _ expr =
   | VecToF64 : 'a base_numerical * ('a, 'sz) vec expr -> (f64, 'sz) vec expr
   | VecOfF32 : 'a base_numerical * (f32, 'sz) vec expr -> ('a, 'sz) vec expr
   | VecOfF64 : 'a base_numerical * (f64, 'sz) vec expr -> ('a, 'sz) vec expr
+  | Shuffle :
+      ('e, 'sz1) vec expr * ('e, 'sz2) vec expr * 'sz mask
+      -> ('e, 'sz) vec expr
 
 and 'a typed_llvm = { value : Llvm.llvalue; ty : 'a typ }
 
@@ -243,6 +246,10 @@ and 'a stack_var =
 and _ stack =
   | Local : 'a stack_var * ('a expr -> 'b stack) -> 'b stack
   | End_frame : 's -> 's stack
+
+(** {2 Masks} *)
+
+and 'sz mask = { size : 'sz Size.t; mask : int array }
 
 (** {2 Mapping variables to compiled expressions} *)
 type environment = Hmap.t

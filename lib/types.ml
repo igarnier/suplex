@@ -265,3 +265,9 @@ let assert_const_array ty ~expected_size =
         pp_typ
         ty
         expected_size
+
+let get_vec_size : type a sz. (a, sz) vec typ -> sz Size.t =
+ fun ty -> match ty with TNum (Vec_num { base = _; numel }) -> numel
+
+let get_vec_base_type : type a sz. (a, sz) vec typ -> a base_numerical =
+ fun ty -> match ty with TNum (Vec_num { base; numel = _ }) -> base

@@ -75,6 +75,8 @@ type ('a, 'b) args = ('a, 'b) Syntax.args
 
 type ('s, 'o) num_rel = ('s, 'o) Syntax.num_rel
 
+type 'sz mask = 'sz Syntax.mask
+
 module type Numerical = sig
   (** [t] is the numerical type. *)
   type t
@@ -502,6 +504,17 @@ let vec_of_f32 trgt v = VecOfF32 (trgt, v)
 
 let vec_of_f64 trgt v = VecOfF64 (trgt, v)
 
+let mask size mask =
+  if Array.length mask <> Size.to_int size then
+    Format.kasprintf
+      invalid_arg
+      "mask: prescribed size %d does not match array length %d"
+      (Size.to_int size)
+      (Array.length mask) ;
+  { size; mask }
+
+let shuffle lhs rhs mask = Shuffle (lhs, rhs, mask)
+
 let rec block cmds =
   match cmds with
   | [] -> unit
@@ -552,17 +565,21 @@ module Run = struct
 
   let bool = Rel Full_rel_bool
 
-  let i64 = Rel Full_rel_int64
+  let base_num r = Rel (Full_rel_num (Full_rel_base r))
 
-  let i32 = Rel Full_rel_int32
+  let i64 = base_num Full_rel_int64
 
-  let i16 = Rel Full_rel_int16
+  let i32 = base_num Full_rel_int32
 
-  let i8 = Rel Full_rel_int8
+  let i16 = base_num Full_rel_int16
 
-  let f64 = Rel Full_rel_float64
+  let i8 = base_num Full_rel_int8
 
-  let f32 = Rel Full_rel_float32
+  let i1 = base_num Full_rel_int1
+
+  let f64 = base_num Full_rel_float64
+
+  let f32 = base_num Full_rel_float32
 
   let bigarray_i64 = Rel Full_rel_ba_i64
 

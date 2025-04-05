@@ -1172,6 +1172,45 @@ let test_dot_product () =
     (Failure "Arrays must have the same size")
     (fun () -> ignore (dot_product arr3 arr4))
 
+let test_shuffle_vector vec1 vec2 mask expected =
+  Alcotest.test_case (Format.asprintf "vector_shuffle (%ld)" expected) `Quick
+  @@ fun () ->
+  let (module V4) = make_i32_vec Size._4 in
+  let (module V8) = make_i32_vec Size._8 in
+  let mdl =
+    Run.add_intrinsic
+      Suplex_intrinsics.Vector.Reduce.(reduce add I32_num Size._8)
+    @@ fun reduce ->
+    Run.main
+      "main"
+      Run.(array_raw i32 @-> array_raw i32 @-> returning i32)
+      begin
+        end_frame @@ fun _self arg1 arg2 ->
+        let* vec1 = (cast arg1 (Types.num V4.n)).%[I64.zero] in
+        let* vec2 = (cast arg2 (Types.num V4.n)).%[I64.zero] in
+        let* res = shuffle vec1 vec2 mask in
+        call1 reduce res
+      end
+  in
+  let main = Run.jit_module ~debug:true mdl in
+  Alcotest.(check int32)
+    (Format.asprintf "vector_shuffle (%ld)" expected)
+    expected
+  @@ main (Array.to_seq vec1) (Array.to_seq vec2)
+
+let shuffle_cases =
+  let vec1 = [| 0l; 1l; 2l; 3l |] in
+  let vec2 = [| 4l; 5l; 6l; 7l |] in
+  [ test_shuffle_vector vec1 vec2 (mask Size._8 [| 0; 0; 0; 0; 0; 0; 0; 0 |]) 0l;
+    test_shuffle_vector vec1 vec2 (mask Size._8 [| 1; 0; 0; 0; 0; 0; 0; 0 |]) 1l;
+    test_shuffle_vector vec1 vec2 (mask Size._8 [| 2; 0; 0; 0; 0; 0; 0; 0 |]) 2l;
+    test_shuffle_vector vec1 vec2 (mask Size._8 [| 3; 0; 0; 0; 0; 0; 0; 0 |]) 3l;
+    test_shuffle_vector
+      vec1
+      vec2
+      (mask Size._8 [| 7; 7; 7; 7; 7; 7; 7; 7 |])
+      56l ]
+
 let () =
   let open Alcotest in
   run
@@ -1250,4 +1289,5 @@ let () =
       ("vector_i32", vector_reduce_i32_cases);
       ("vector_f32_noacc", vector_reduce_f32_noacc_cases);
       ("vector_f32_acc", vector_reduce_f32_acc_cases);
-      ("dot_product", [test_case "dot_product" `Quick test_dot_product]) ]
+      ("dot_product", [test_case "dot_product" `Quick test_dot_product]);
+      ("vector_shuffle", shuffle_cases) ]

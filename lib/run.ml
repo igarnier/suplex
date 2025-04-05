@@ -152,15 +152,27 @@ module F32_ba = Make_suplex_bigarray_struct (struct
   let rel = F32_rel
 end)
 
+type (_, _, _) full_rel_base_numerical =
+  | Full_rel_int64 : (i64, int64, int64) full_rel_base_numerical
+  | Full_rel_int32 : (i32, int32, int32) full_rel_base_numerical
+  | Full_rel_int16 : (i16, int, int) full_rel_base_numerical
+  | Full_rel_int8 : (i8, int, int) full_rel_base_numerical
+  | Full_rel_int1 : (i1, bool, bool) full_rel_base_numerical
+  | Full_rel_float64 : (f64, float, float) full_rel_base_numerical
+  | Full_rel_float32 : (f32, float, float) full_rel_base_numerical
+
+type (_, _, _) full_rel_numerical =
+  | Full_rel_base :
+      ('s, 'o, 'c) full_rel_base_numerical
+      -> ('s expr, 'o, 'c) full_rel_numerical
+  | Full_rel_vec :
+      { base : ('s, 'o, 'c) full_rel_base_numerical; numel : 'sz Size.t }
+      -> (('s, 'sz) vec expr, 'o Seq.t, 'c Ctypes.carray) full_rel_numerical
+
 type (_, _, _) full_rel =
   | Full_rel_unit : (unit expr, unit, bool) full_rel
   | Full_rel_bool : (bool expr, bool, bool) full_rel
-  | Full_rel_int64 : (i64 expr, int64, int64) full_rel
-  | Full_rel_int32 : (i32 expr, int32, int32) full_rel
-  | Full_rel_int16 : (i16 expr, int, int) full_rel
-  | Full_rel_int8 : (i8 expr, int, int) full_rel
-  | Full_rel_float64 : (f64 expr, float, float) full_rel
-  | Full_rel_float32 : (f32 expr, float, float) full_rel
+  | Full_rel_num : ('s, 'o, 'c) full_rel_numerical -> ('s, 'o, 'c) full_rel
   | Full_rel_string : (i8 ptr expr, string, string) full_rel
   | Full_rel_ba_i64 :
       ( I64_ba.s record expr,
@@ -294,12 +306,7 @@ let rec extract_ctypes : type s o c. (s, o, c) full_rel -> c Ctypes.typ =
   match r with
   | Full_rel_unit -> Ctypes.bool
   | Full_rel_bool -> Ctypes.bool
-  | Full_rel_int64 -> Ctypes.int64_t
-  | Full_rel_int32 -> Ctypes.int32_t
-  | Full_rel_int16 -> Ctypes.int16_t
-  | Full_rel_int8 -> Ctypes.int8_t
-  | Full_rel_float64 -> Ctypes.double
-  | Full_rel_float32 -> Ctypes.float
+  | Full_rel_num n -> extract_ctypes_numerical n
   | Full_rel_string -> Ctypes.string
   | Full_rel_ba_i64 -> Ctypes.ptr I64_ba.ctypes
   | Full_rel_ba_i32 -> Ctypes.ptr I32_ba.ctypes
@@ -314,6 +321,27 @@ let rec extract_ctypes : type s o c. (s, o, c) full_rel -> c Ctypes.typ =
   | Full_rel_mallocd_struct (_strct, v) -> Ctypes.ptr (ctypes_struct v)
   | Full_rel_opaque_mallocd_struct _strct -> opaque
   | Full_rel_struct (_strct, v) -> ctypes_struct v
+
+and extract_ctypes_base_numerical : type s o c.
+    (s, o, c) full_rel_base_numerical -> c Ctypes.typ =
+ fun r ->
+  match r with
+  | Full_rel_int64 -> Ctypes.int64_t
+  | Full_rel_int32 -> Ctypes.int32_t
+  | Full_rel_int16 -> Ctypes.int16_t
+  | Full_rel_int8 -> Ctypes.int8_t
+  | Full_rel_int1 -> Ctypes.bool
+  | Full_rel_float64 -> Ctypes.double
+  | Full_rel_float32 -> Ctypes.float
+
+and extract_ctypes_numerical : type s o c.
+    (s, o, c) full_rel_numerical -> c Ctypes.typ =
+ fun r ->
+  match r with
+  | Full_rel_base br -> extract_ctypes_base_numerical br
+  | Full_rel_vec { base; numel } ->
+      let sz = Size.to_int numel in
+      Ctypes.array sz (extract_ctypes_base_numerical base)
 
 and ctypes_struct : type s o c u.
     (s Vec.t, o, c) full_rel_vec -> u Ctypes.structure Ctypes.typ =
@@ -349,12 +377,7 @@ let rec ocaml_to_ctypes : type s o c. (s, o, c) full_rel -> o -> c =
   match rel with
   | Full_rel_unit -> false
   | Full_rel_bool -> v
-  | Full_rel_int64 -> v
-  | Full_rel_int32 -> v
-  | Full_rel_int16 -> v
-  | Full_rel_int8 -> v
-  | Full_rel_float64 -> v
-  | Full_rel_float32 -> v
+  | Full_rel_num r -> ocaml_to_ctypes_numerical r v
   | Full_rel_string -> v
   | Full_rel_ba_i64 -> bigarray_to_cstruct (module I64_ba) v
   | Full_rel_ba_i32 -> bigarray_to_cstruct (module I32_ba) v
@@ -395,6 +418,25 @@ let rec ocaml_to_ctypes : type s o c. (s, o, c) full_rel -> o -> c =
   | Full_rel_struct (_strct, fields) ->
       let (_typ, strct) = construct_ctypes_record fields v in
       strct
+
+and ocaml_to_ctypes_base_numerical : type s o c.
+    (s, o, c) full_rel_base_numerical -> o -> c =
+ fun r v ->
+  match r with
+  | Full_rel_int64 -> v
+  | Full_rel_int32 -> v
+  | Full_rel_int16 -> v
+  | Full_rel_int8 -> v
+  | Full_rel_int1 -> v
+  | Full_rel_float64 -> v
+  | Full_rel_float32 -> v
+
+and ocaml_to_ctypes_numerical : type s o c.
+    (s, o, c) full_rel_numerical -> o -> c =
+ fun r v ->
+  match r with
+  | Full_rel_base r -> ocaml_to_ctypes_base_numerical r v
+  | Full_rel_vec { base = _; numel = _ } -> assert false
 
 and init_carray : type s o c.
     (s, o, c) full_rel -> o Seq.t -> int -> c Ctypes_static.carray -> unit =
@@ -447,12 +489,7 @@ let rec ctypes_to_ocaml : type s o c. (s, o, c) full_rel -> c -> o =
   match rel with
   | Full_rel_unit -> ()
   | Full_rel_bool -> v
-  | Full_rel_int64 -> v
-  | Full_rel_int32 -> v
-  | Full_rel_int16 -> v
-  | Full_rel_int8 -> v
-  | Full_rel_float64 -> v
-  | Full_rel_float32 -> v
+  | Full_rel_num r -> ctypes_to_ocaml_numerical r v
   | Full_rel_string -> v
   | Full_rel_ba_i64 | Full_rel_ba_i32 | Full_rel_ba_i16 | Full_rel_ba_i8
   | Full_rel_ba_f64 | Full_rel_ba_f32 ->
@@ -468,6 +505,25 @@ let rec ctypes_to_ocaml : type s o c. (s, o, c) full_rel -> c -> o =
       destruct_ctypes_record fields Ctypes.(!@v)
   | Full_rel_opaque_mallocd_struct _ -> v
   | Full_rel_struct (_strct, fields) -> destruct_ctypes_record fields v
+
+and ctypes_to_ocaml_base_numerical : type s o c.
+    (s, o, c) full_rel_base_numerical -> c -> o =
+ fun r v ->
+  match r with
+  | Full_rel_int64 -> v
+  | Full_rel_int32 -> v
+  | Full_rel_int16 -> v
+  | Full_rel_int8 -> v
+  | Full_rel_int1 -> v
+  | Full_rel_float64 -> v
+  | Full_rel_float32 -> v
+
+and ctypes_to_ocaml_numerical : type s o c.
+    (s, o, c) full_rel_numerical -> c -> o =
+ fun r v ->
+  match r with
+  | Full_rel_base r -> ctypes_to_ocaml_base_numerical r v
+  | Full_rel_vec _ -> assert false
 
 and destruct_ctypes_record : type s o c u.
     (s Vec.t, o Vec.t, c) full_rel_vec -> u Ctypes.structure -> o Vec.t =
@@ -514,12 +570,7 @@ let rec extract_suplex : type s o c. (s expr, o, c) full_rel -> s typ =
   match rel with
   | Full_rel_unit -> Types.unit
   | Full_rel_bool -> Types.bool
-  | Full_rel_int64 -> Types.i64
-  | Full_rel_int32 -> Types.i32
-  | Full_rel_int16 -> Types.i16
-  | Full_rel_int8 -> Types.i8
-  | Full_rel_float64 -> Types.f64
-  | Full_rel_float32 -> Types.f32
+  | Full_rel_num r -> extract_suplex_numerical r
   | Full_rel_string -> Types.ptr Types.i8
   | Full_rel_ba_i64 -> I64_ba.s
   | Full_rel_ba_i32 -> I32_ba.s
@@ -535,6 +586,28 @@ let rec extract_suplex : type s o c. (s expr, o, c) full_rel -> s typ =
   | Full_rel_mallocd_struct (r, _) -> Types.seal r
   | Full_rel_opaque_mallocd_struct r -> Types.seal r
   | Full_rel_struct (r, _) -> Types.seal r
+
+and extract_suplex_numerical : type s o c.
+    (s expr, o, c) full_rel_numerical -> s typ =
+ fun rel ->
+  match rel with
+  | Full_rel_base r -> extract_suplex_base_numerical r
+  | Full_rel_vec { base; numel } -> (
+      match extract_suplex_base_numerical base with
+      | TNum (Base_num base) -> Types.vec base numel
+      | _ -> assert false)
+
+and extract_suplex_base_numerical : type s o c.
+    (s, o, c) full_rel_base_numerical -> s typ =
+ fun rel ->
+  match rel with
+  | Full_rel_int64 -> Types.i64
+  | Full_rel_int32 -> Types.i32
+  | Full_rel_int16 -> Types.i16
+  | Full_rel_int8 -> Types.i8
+  | Full_rel_int1 -> Types.i1
+  | Full_rel_float64 -> Types.f64
+  | Full_rel_float32 -> Types.f32
 
 let rec prototype_of_rel : type s o c. (s, o, c) full_rel_fn -> s fn =
  fun rel ->

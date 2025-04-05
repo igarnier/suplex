@@ -380,6 +380,32 @@ let compile_const : type s o.
         (Types.vec (base_numerical_of_base_num_rel base) numel)
         (Llvm.const_vector values)
 
+let vec_is_constant : type sz. (i32, sz) vec expr -> bool =
+ fun expr -> match expr with Num (_, _) -> true | _ -> false
+
+(* Verify that:
+   - mask size is sum of operand vector sizes
+   - mask only contains in-bounds indices *)
+let assert_valid_mask : int array -> int -> int -> unit =
+ fun mask sz1 sz2 ->
+  let total_size = sz1 + sz2 in
+  let numel = Array.length mask in
+  if numel <> total_size then
+    Format.kasprintf
+      failwith
+      "mask has size %d, inconsistent with operand sizes (%d, %d)"
+      numel
+      sz1
+      sz2 ;
+  match Array.find_index (fun i -> i < 0 || i >= total_size) mask with
+  | None -> ()
+  | Some invalid_index ->
+      Format.kasprintf
+        failwith
+        "at index %d, mask contains invalid value %d."
+        invalid_index
+        mask.(invalid_index)
+
 let rec compile : type a.
     environment -> llvm_state -> a expr -> a typed_llvm option =
  fun env state expr ->
@@ -1283,6 +1309,31 @@ let rec compile : type a.
       | F32_num ->
           Llvm.build_fptrunc v.value target "f64_to_f32" (get_builder state)
           |> with_type target_ty)
+  | Shuffle (lhs, rhs, { size; mask }) ->
+      if Size.to_int size <> Array.length mask then
+        Format.kasprintf
+          failwith
+          "Shuffle: mask has size %d but array literal has length %d"
+          (Size.to_int size)
+          (Array.length mask) ;
+      let* lhs = compile env state lhs in
+      let* rhs = compile env state rhs in
+      let sz1 = Types.get_vec_size lhs.ty in
+      let sz2 = Types.get_vec_size rhs.ty in
+      assert_valid_mask mask (Size.to_int sz1) (Size.to_int sz2) ;
+      let* mask =
+        compile_const
+          state.llvm_context
+          (Vec_rel { base = I32_rel; numel = size })
+          (Array.map Int32.of_int mask)
+      in
+      Llvm.build_shufflevector
+        lhs.value
+        rhs.value
+        mask.value
+        "shufflevector"
+        (get_builder state)
+      |> with_type (Types.vec (Types.get_vec_base_type lhs.ty) size)
 
 and get_generic : type a b c.
     environment ->

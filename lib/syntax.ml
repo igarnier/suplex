@@ -208,6 +208,9 @@ and _ expr =
   | Shuffle :
       ('e, 'sz1) vec expr * ('e, 'sz2) vec expr * 'sz mask
       -> ('e, 'sz) vec expr
+  | InsertElement :
+      ('a, 'sz) vec expr * 'a expr * i32 expr
+      -> ('a, 'sz) vec expr
 
 and 'a typed_llvm = { value : Llvm.llvalue; ty : 'a typ }
 

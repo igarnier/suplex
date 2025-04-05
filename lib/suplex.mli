@@ -513,6 +513,10 @@ val shuffle :
 (** Undefined value of a given type. *)
 val undef : 'a typ -> 'a expr
 
+(** [broadcast base_num v sz] creates a vector of size [sz] with all components
+    equal to the value [v] evaluates to. *)
+val broadcast : 'a base_numerical -> 'a expr -> 'sz Size.t -> ('a, 'sz) vec expr
+
 (** [block stmts] is a block of statements [stmts]. *)
 val block : unit expr list -> unit expr
 

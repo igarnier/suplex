@@ -1211,6 +1211,34 @@ let shuffle_cases =
       (mask Size._8 [| 7; 7; 7; 7; 7; 7; 7; 7 |])
       56l ]
 
+let test_broadcast_vector scalar size expected =
+  Alcotest.test_case
+    (Format.asprintf "vector_broadcast (%ld x %d)" scalar (Size.to_int size))
+    `Quick
+  @@ fun () ->
+  let mdl =
+    Run.add_intrinsic Suplex_intrinsics.Vector.Reduce.(reduce add I32_num size)
+    @@ fun reduce ->
+    Run.main
+      "main"
+      Run.(unit @-> returning i32)
+      begin
+        end_frame @@ fun _self _ ->
+        let* res = broadcast I32_num (I32.v scalar) size in
+        call1 reduce res
+      end
+  in
+  let main = Run.jit_module ~debug:true mdl in
+  Alcotest.(check int32)
+    (Format.asprintf "vector_broadcast (%ld)" expected)
+    expected
+  @@ main ()
+
+let broadcast_cases =
+  [ test_broadcast_vector 0l Size._4 0l;
+    test_broadcast_vector 1l Size._4 4l;
+    test_broadcast_vector 2l Size._4 8l ]
+
 let () =
   let open Alcotest in
   run
@@ -1290,4 +1318,5 @@ let () =
       ("vector_f32_noacc", vector_reduce_f32_noacc_cases);
       ("vector_f32_acc", vector_reduce_f32_acc_cases);
       ("dot_product", [test_case "dot_product" `Quick test_dot_product]);
-      ("vector_shuffle", shuffle_cases) ]
+      ("vector_shuffle", shuffle_cases);
+      ("vector_broadcast", broadcast_cases) ]

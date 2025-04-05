@@ -517,6 +517,14 @@ let shuffle lhs rhs mask = Shuffle (lhs, rhs, mask)
 
 let undef ty = Undef ty
 
+let insert_element vec elt idx = InsertElement (vec, elt, idx)
+
+let broadcast base_num scalar size =
+  let vec_ty = Types.vec base_num size in
+  let* un = undef vec_ty in
+  let* lhs = insert_element un scalar I32.zero in
+  shuffle lhs un (mask size (Array.make (Size.to_int size) 0))
+
 let rec block cmds =
   match cmds with
   | [] -> unit

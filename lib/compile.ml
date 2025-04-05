@@ -390,10 +390,10 @@ let assert_valid_mask : int array -> int -> int -> unit =
  fun mask sz1 sz2 ->
   let total_size = sz1 + sz2 in
   let numel = Array.length mask in
-  if numel <> total_size then
+  if numel > total_size then
     Format.kasprintf
       failwith
-      "mask has size %d, inconsistent with operand sizes (%d, %d)"
+      "mask has size %d, greater than size of operands (%d, %d)"
       numel
       sz1
       sz2 ;
@@ -1337,6 +1337,17 @@ let rec compile : type a.
         "shufflevector"
         (get_builder state)
       |> with_type (Types.vec (Types.get_vec_base_type lhs.ty) size)
+  | InsertElement (vec, elt, idx) ->
+      let* vec = compile env state vec in
+      let* elt = compile env state elt in
+      let* idx = compile env state idx in
+      Llvm.build_insertelement
+        vec.value
+        elt.value
+        idx.value
+        "insertelement"
+        (get_builder state)
+      |> with_type vec.ty
 
 and get_generic : type a b c.
     environment ->

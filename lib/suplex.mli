@@ -237,6 +237,32 @@ module type Numerical = sig
   val zero : t expr
 
   val one : t expr
+
+  module Infix : sig
+    val v : v -> t expr
+
+    val ( + ) : t expr -> t expr -> t expr
+
+    val ( - ) : t expr -> t expr -> t expr
+
+    val ( * ) : t expr -> t expr -> t expr
+
+    val ( / ) : t expr -> t expr -> t expr
+
+    val ( mod ) : t expr -> t expr -> t expr
+
+    val ( ~- ) : t expr -> t expr
+
+    val ( < ) : t expr -> t expr -> bool expr
+
+    val ( <= ) : t expr -> t expr -> bool expr
+
+    val ( = ) : t expr -> t expr -> bool expr
+
+    val zero : t expr
+
+    val one : t expr
+  end
 end
 
 module type BA = sig

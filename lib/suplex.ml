@@ -114,6 +114,32 @@ module type Numerical = sig
   val zero : t expr
 
   val one : t expr
+
+  module Infix : sig
+    val v : v -> t expr
+
+    val ( + ) : t expr -> t expr -> t expr
+
+    val ( - ) : t expr -> t expr -> t expr
+
+    val ( * ) : t expr -> t expr -> t expr
+
+    val ( / ) : t expr -> t expr -> t expr
+
+    val ( mod ) : t expr -> t expr -> t expr
+
+    val ( ~- ) : t expr -> t expr
+
+    val ( < ) : t expr -> t expr -> bool expr
+
+    val ( <= ) : t expr -> t expr -> bool expr
+
+    val ( = ) : t expr -> t expr -> bool expr
+
+    val zero : t expr
+
+    val one : t expr
+  end
 end
 
 let zero_of_base_num_rel : type t v. (t, v) base_num_rel -> v =
@@ -192,6 +218,32 @@ end) : Numerical with type t = Num.t and type v = Num.v = struct
   let eq a b = Eq (n, a, b)
 
   let rem a b = Rem (n, a, b)
+
+  module Infix = struct
+    let v = v
+
+    let ( + ) = add
+
+    let ( - ) = sub
+
+    let ( * ) = mul
+
+    let ( / ) = div
+
+    let ( mod ) = rem
+
+    let ( ~- ) = neg
+
+    let ( < ) = lt
+
+    let ( <= ) = le
+
+    let ( = ) = eq
+
+    let zero = zero
+
+    let one = one
+  end
 end
 
 (* Specialize [Make_numerical] to base numerical types. *)

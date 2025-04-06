@@ -8,12 +8,21 @@ type _8 = Size_8
 
 type _16 = Size_16
 
+type _32 = Size_32
+
+type _64 = Size_64
+
+type _128 = Size_128
+
 type _ t =
   | Size_1 : _1 t
   | Size_2 : _2 t
   | Size_4 : _4 t
   | Size_8 : _8 t
   | Size_16 : _16 t
+  | Size_32 : _32 t
+  | Size_64 : _64 t
+  | Size_128 : _128 t
 
 let _1 = Size_1
 
@@ -25,12 +34,23 @@ let _8 = Size_8
 
 let _16 = Size_16
 
+let _32 = Size_32
+
+let _64 = Size_64
+
+let _128 = Size_128
+
 let to_int : type a. a t -> int = function
   | Size_1 -> 1
   | Size_2 -> 2
   | Size_4 -> 4
   | Size_8 -> 8
   | Size_16 -> 16
+  | Size_32 -> 32
+  | Size_64 -> 64
+  | Size_128 -> 128
+
+let to_int64 s = Int64.of_int (to_int s)
 
 let equal : type a b. a t -> b t -> (a, b) Type.eq option =
  fun sz1 sz2 ->
@@ -40,4 +60,7 @@ let equal : type a b. a t -> b t -> (a, b) Type.eq option =
   | (Size_4, Size_4) -> Some Type.Equal
   | (Size_8, Size_8) -> Some Type.Equal
   | (Size_16, Size_16) -> Some Type.Equal
+  | (Size_32, Size_32) -> Some Type.Equal
+  | (Size_64, Size_64) -> Some Type.Equal
+  | (Size_128, Size_128) -> Some Type.Equal
   | _ -> None
